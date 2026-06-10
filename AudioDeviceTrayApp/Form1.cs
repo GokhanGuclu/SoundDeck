@@ -9,6 +9,8 @@ using System.Windows.Forms;
 using AudioSwitcher.AudioApi;
 using AudioSwitcher.AudioApi.CoreAudio;
 using Microsoft.Win32;
+using Velopack;
+using Velopack.Sources;
 
 namespace AudioDeviceTrayApp
 {
@@ -272,6 +274,7 @@ namespace AudioDeviceTrayApp
                 new ToolStripMenuItem("🎤  Switch to Microphone", null, (s, e) => SwitchMic()),
                 new ToolStripMenuItem("🔇  Mute Microphone", null, (s, e) => ToggleMicMute()),
                 new ToolStripSeparator(),
+                new ToolStripMenuItem("🔄  Check for Updates...", null, async (s, e) => await CheckForUpdatesInteractiveAsync()),
                 new ToolStripMenuItem("⚙️  Settings...", null, OnSettings),
                 new ToolStripSeparator(),
                 new ToolStripMenuItem("❌  Exit", null, OnExit)
@@ -512,6 +515,9 @@ namespace AudioDeviceTrayApp
                 Hide();
                 ShowInTaskbar = false;
             }
+
+            // Silently check for updates in the background on every launch.
+            _ = AutoUpdateOnStartupAsync();
         }
 
         private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
@@ -820,6 +826,74 @@ namespace AudioDeviceTrayApp
             _trayIcon.BalloonTipTitle = title;
             _trayIcon.BalloonTipText = text;
             _trayIcon.ShowBalloonTip(1000);
+        }
+
+        // ===================== Auto-update (Velopack) =====================
+
+        private const string UpdateRepoUrl = "https://github.com/GokhanGuclu/SoundDeck";
+
+        private static UpdateManager CreateUpdateManager()
+            => new UpdateManager(new GithubSource(UpdateRepoUrl, null, false));
+
+        private async Task AutoUpdateOnStartupAsync()
+        {
+            try
+            {
+                var mgr = CreateUpdateManager();
+                if (!mgr.IsInstalled) return;
+
+                var info = await mgr.CheckForUpdatesAsync();
+                if (info == null) return;
+
+                await mgr.DownloadUpdatesAsync(info);
+
+                // Apply the next time the app exits — settings live in %AppData% and are kept.
+                mgr.WaitExitThenApplyUpdates(info.TargetFullRelease, silent: false, restart: false);
+                ShowBalloon("SoundDeck",
+                    $"Update {info.TargetFullRelease.Version} downloaded — it will be installed the next time you start SoundDeck.");
+            }
+            catch
+            {
+                // Never disturb startup because of a failed update check.
+            }
+        }
+
+        private async Task CheckForUpdatesInteractiveAsync()
+        {
+            try
+            {
+                var mgr = CreateUpdateManager();
+                if (!mgr.IsInstalled)
+                {
+                    MessageBox.Show(
+                        "Auto-update is only available in the installed version of SoundDeck (not when run from source).",
+                        "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                var info = await mgr.CheckForUpdatesAsync();
+                if (info == null)
+                {
+                    MessageBox.Show("You're on the latest version. 🎉",
+                        "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                var answer = MessageBox.Show(
+                    $"A new version ({info.TargetFullRelease.Version}) is available.\n\n" +
+                    "Download and update now? SoundDeck will restart and keep all your settings.",
+                    "Update available", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (answer != DialogResult.Yes) return;
+
+                ShowBalloon("SoundDeck", "Downloading update...");
+                await mgr.DownloadUpdatesAsync(info);
+                mgr.ApplyUpdatesAndRestart(info);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Update check failed: " + ex.Message,
+                    "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         // ===================== Hotkey registration =====================

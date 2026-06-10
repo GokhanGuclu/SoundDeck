@@ -37,6 +37,7 @@
 - 🔔 **Notifications** — Visual feedback every time something changes
 - 💾 **Auto-Save** — Your preferences are stored automatically
 - 🚀 **Startup Option** — Launch automatically with Windows
+- 🔄 **Automatic Updates** — New versions install themselves; no need to re-run any setup
 - 🎯 **Lightweight** — Runs quietly in the system tray with minimal resources
 
 ---
@@ -49,6 +50,7 @@
 | **[C# 14.0](https://docs.microsoft.com/en-us/dotnet/csharp/)** | Programming language |
 | **[Windows Forms](https://docs.microsoft.com/en-us/dotnet/desktop/winforms/)** | User interface |
 | **[AudioSwitcher.AudioApi.CoreAudio](https://github.com/xenolightning/AudioSwitcher)** | Audio device & volume management |
+| **[Velopack](https://velopack.io/)** | Automatic updates & installer |
 | **[System.Text.Json](https://docs.microsoft.com/en-us/dotnet/api/system.text.json)** | Settings serialization |
 | **Win32 API** | Global hotkey registration |
 
@@ -56,15 +58,22 @@
 
 ## 📦 Installation
 
-### Option 1: Installer (Recommended)
-1. Download the latest setup from [Releases](../../releases)
-2. Run the installer and follow the setup wizard
-3. SoundDeck starts automatically in your system tray
+1. Download **`SoundDeck-win-Setup.exe`** from the [latest Release](../../releases/latest)
+2. Run it — SoundDeck installs silently and starts in your system tray
+3. That's it. No .NET runtime needed (it's bundled), and **future updates install automatically**
 
-### Option 2: Portable / from source
-1. Build the project (see [Development](#-development))
-2. Run `SoundDeck.exe`
-3. Requires the [.NET 10.0 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)
+> Building from source instead? See [Development](#-development).
+
+---
+
+## 🔄 Automatic Updates
+
+SoundDeck keeps itself up to date — you never have to download and reinstall a setup again.
+
+- On every launch it quietly checks GitHub for a newer version.
+- If one is found, it's downloaded in the background and installed **the next time you start the app**.
+- You can also trigger it manually: right-click the tray icon → **🔄 Check for Updates...** (this updates and restarts immediately).
+- Your settings live in `%AppData%\SoundDeck` and are **always preserved** across updates.
 
 ---
 
@@ -157,6 +166,41 @@ powershell -ExecutionPolicy Bypass -File assets\make_logo.ps1
 
 This produces `assets/logo.png` and `AudioDeviceTrayApp/app.ico`.
 
+### Releasing a new version (auto-update)
+
+Updates are powered by [Velopack](https://velopack.io/), published through GitHub Releases.
+
+**One-time setup** — install the Velopack CLI (version must match the `Velopack` NuGet package, currently `1.2.0`):
+
+```powershell
+dotnet tool install -g vpk --version 1.2.0
+```
+
+**Each release:**
+
+```powershell
+# 1. Build the installer + update packages (bump the version each time)
+powershell -ExecutionPolicy Bypass -File assets\build-release.ps1 -Version 1.0.1
+```
+
+This creates a `Releases/` folder containing `SoundDeck-win-Setup.exe`, the `*-full.nupkg`
+update package, and the release manifest.
+
+```
+# 2. Create a GitHub Release tagged v1.0.1 and upload EVERYTHING in the Releases/ folder.
+```
+
+> ⚠️ The tag and the `-Version` must match (e.g. tag `v1.0.1` ↔ `-Version 1.0.1`), and the version
+> must always increase. Existing users get this update automatically on their next launch.
+> First-time users grab `SoundDeck-win-Setup.exe`.
+
+You can also upload straight from the CLI with a [personal access token](https://github.com/settings/tokens):
+
+```powershell
+vpk upload github --repoUrl https://github.com/GokhanGuclu/SoundDeck --publish `
+    --releaseName "v1.0.1" --tag "v1.0.1" --token <YOUR_GITHUB_TOKEN>
+```
+
 ### Project structure
 ```
 SoundDeck/
@@ -167,14 +211,15 @@ SoundDeck/
 ├── assets/
 │   ├── logo.png                     # App logo (for README)
 │   ├── audio.gif                    # Demo animation
-│   └── make_logo.ps1                # Logo / icon generator
+│   ├── make_logo.ps1                # Logo / icon generator
+│   └── build-release.ps1            # Builds the Velopack installer + update packages
 └── AudioDeviceTrayApp/              # Project
     ├── Program.cs                   # Entry point
     ├── Form1.cs                     # Main application logic
     ├── Form1.Designer.cs            # Designer generated code
     ├── app.ico                      # Application icon
-    ├── setup.iss                    # Inno Setup installer script
-    ├── SimpleInstaller.ps1          # Lightweight PowerShell installer
+    ├── setup.iss                    # (legacy) Inno Setup script — superseded by Velopack
+    ├── SimpleInstaller.ps1          # (legacy) PowerShell installer — superseded by Velopack
     └── AudioDeviceTrayApp.csproj
 ```
 

@@ -413,6 +413,7 @@ Installer/
 
 # Publish output (capital P is not covered by the lowercase publish/ rule above)
 Publish/
+publish_temp/
 
 # Claude Code local settings
 .claude/
