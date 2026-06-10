@@ -21,16 +21,20 @@ namespace AudioDeviceTrayApp
         private readonly ContextMenuStrip _trayMenu;
 
         // ---- Output devices ----
-        private readonly ComboBox _headsetCombo;
-        private readonly ComboBox _speakersCombo;
+        private ComboBox _headsetCombo;
+        private ComboBox _speakersCombo;
 
         // ---- Microphone ----
-        private readonly ComboBox _micCombo;
+        private ComboBox _micCombo;
 
         // ---- General ----
-        private readonly NumericUpDown _volumeStepInput;
-        private readonly CheckBox _startWithWindowsCheckbox;
+        private NumericUpDown _volumeStepInput;
+        private CheckBox _startWithWindowsCheckbox;
         private readonly Button _saveButton;
+
+        // ---- Navigation ----
+        private readonly List<Button> _navButtons = new();
+        private readonly List<Panel> _navPages = new();
 
         private readonly CoreAudioController _audioController = new CoreAudioController();
         private AppSettings _settings = new AppSettings();
@@ -52,6 +56,9 @@ namespace AudioDeviceTrayApp
         private const uint MOD_CONTROL = 0x0002;
         private const uint MOD_SHIFT = 0x0004;
 
+        private const int WM_NCLBUTTONDOWN = 0xA1;
+        private const int HTCAPTION = 0x2;
+
         private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string APP_NAME = "SoundDeck";
 
@@ -70,18 +77,27 @@ namespace AudioDeviceTrayApp
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+        [DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
         private readonly string _settingsPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "SoundDeck", "settings.json");
 
         // Theme colors
         private static readonly Color Bg = Color.FromArgb(24, 24, 27);
+        private static readonly Color Sidebar = Color.FromArgb(30, 30, 33);
+        private static readonly Color NavSelected = Color.FromArgb(45, 40, 66);
         private static readonly Color Surface = Color.FromArgb(39, 39, 42);
         private static readonly Color Accent = Color.FromArgb(139, 92, 246);
         private static readonly Color AccentHover = Color.FromArgb(124, 58, 237);
         private static readonly Color TextMain = Color.FromArgb(228, 228, 231);
         private static readonly Color TextDim = Color.FromArgb(161, 161, 170);
         private static readonly Color TextHint = Color.FromArgb(113, 113, 122);
+        private static readonly Color LabelColor = Color.FromArgb(212, 212, 216);
 
         public Form1()
         {
@@ -98,153 +114,27 @@ namespace AudioDeviceTrayApp
             _openSettingsOnStart = Environment.GetCommandLineArgs()
                 .Any(a => string.Equals(a, "--settings", StringComparison.OrdinalIgnoreCase));
 
-            Text = "🎛️ SoundDeck";
-            Width = 600;
-            Height = 660;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
+            // ---------- Window ----------
+            Text = "SoundDeck";
+            FormBorderStyle = FormBorderStyle.None;
+            ClientSize = new Size(660, 480);
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Bg;
             ForeColor = Color.WhiteSmoke;
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
 
-            var titleLabel = new Label
-            {
-                Text = "🎛️  SoundDeck",
-                Font = new Font("Segoe UI Semibold", 16F, FontStyle.Bold),
-                ForeColor = Accent,
-                AutoSize = true,
-                Left = 25,
-                Top = 18
-            };
-            Controls.Add(titleLabel);
-
-            var subtitleLabel = new Label
-            {
-                Text = "Your audio control center — devices, microphone and volume",
-                Font = new Font("Segoe UI", 9F),
-                ForeColor = TextDim,
-                AutoSize = true,
-                Left = 25,
-                Top = 48
-            };
-            Controls.Add(subtitleLabel);
-
-            var content = new Panel
-            {
-                Left = 18,
-                Top = 78,
-                Width = 562,
-                Height = 500,
-                AutoScroll = true,
-                BackColor = Bg
-            };
-            Controls.Add(content);
-
-            int y = 6;
-
-            // ---------- Output devices ----------
-            var outGroup = CreateGroup(" 🎵  Output Devices ", y, 110);
-            _headsetCombo = AddComboRow(outGroup, "🎧  Headset:", 30);
-            _speakersCombo = AddComboRow(outGroup, "🔊  Speakers:", 65);
-            content.Controls.Add(outGroup);
-            y += outGroup.Height + 12;
-
-            // ---------- Output hotkeys ----------
-            var outHk = CreateGroup(" ⌨️  Output Hotkeys ", y, 150);
-            AddHotkeyRow(outHk, "🎧  Headset:", 30,
-                () => _settings.HeadsetHotkey, v => _settings.HeadsetHotkey = v);
-            AddHotkeyRow(outHk, "🔊  Speakers:", 65,
-                () => _settings.SpeakersHotkey, v => _settings.SpeakersHotkey = v);
-            AddHotkeyRow(outHk, "🔁  Cycle device:", 100,
-                () => _settings.CycleOutputHotkey, v => _settings.CycleOutputHotkey = v);
-            content.Controls.Add(outHk);
-            y += outHk.Height + 12;
-
-            // ---------- Microphone ----------
-            var micGroup = CreateGroup(" 🎤  Microphone ", y, 150);
-            _micCombo = AddComboRow(micGroup, "🎤  Device:", 30);
-            AddHotkeyRow(micGroup, "🎤  Set default:", 65,
-                () => _settings.MicSwitchHotkey, v => _settings.MicSwitchHotkey = v);
-            AddHotkeyRow(micGroup, "🔇  Mute toggle:", 100,
-                () => _settings.MicMuteHotkey, v => _settings.MicMuteHotkey = v);
-            content.Controls.Add(micGroup);
-            y += micGroup.Height + 12;
-
-            // ---------- Master volume ----------
-            var volGroup = CreateGroup(" 🔊  Master Volume ", y, 185);
-            AddHotkeyRow(volGroup, "🔊  Volume up:", 30,
-                () => _settings.VolumeUpHotkey, v => _settings.VolumeUpHotkey = v);
-            AddHotkeyRow(volGroup, "🔉  Volume down:", 65,
-                () => _settings.VolumeDownHotkey, v => _settings.VolumeDownHotkey = v);
-            AddHotkeyRow(volGroup, "🔇  Mute toggle:", 100,
-                () => _settings.VolumeMuteHotkey, v => _settings.VolumeMuteHotkey = v);
-
-            var stepLabel = new Label
-            {
-                Text = "📏  Step size:",
-                AutoSize = true,
-                Left = 20,
-                Top = 138,
-                Font = new Font("Segoe UI", 9F),
-                ForeColor = Color.FromArgb(212, 212, 216)
-            };
-            _volumeStepInput = new NumericUpDown
-            {
-                Left = 130,
-                Top = 135,
-                Width = 70,
-                Minimum = 1,
-                Maximum = 50,
-                Value = Math.Clamp(_settings.VolumeStep, 1, 50),
-                BackColor = Surface,
-                ForeColor = Color.WhiteSmoke,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 9F)
-            };
-            _volumeStepInput.ValueChanged += (s, e) =>
-            {
-                _settings.VolumeStep = (int)_volumeStepInput.Value;
-                SaveSettings();
-            };
-            var stepHint = new Label
-            {
-                Text = "% per key press",
-                AutoSize = true,
-                Left = 210,
-                Top = 138,
-                ForeColor = TextHint,
-                Font = new Font("Segoe UI", 8F, FontStyle.Italic)
-            };
-            volGroup.Controls.Add(stepLabel);
-            volGroup.Controls.Add(_volumeStepInput);
-            volGroup.Controls.Add(stepHint);
-            content.Controls.Add(volGroup);
-            y += volGroup.Height + 12;
-
-            // ---------- General ----------
-            var genGroup = CreateGroup(" ⚙️  General ", y, 65);
-            _startWithWindowsCheckbox = new CheckBox
-            {
-                Text = "🚀  Start with Windows",
-                Left = 20,
-                Top = 28,
-                Width = 250,
-                ForeColor = Color.FromArgb(212, 212, 216),
-                Font = new Font("Segoe UI", 9.5F),
-                Checked = _settings.StartWithWindows
-            };
-            _startWithWindowsCheckbox.CheckedChanged += StartWithWindowsCheckbox_CheckedChanged;
-            genGroup.Controls.Add(_startWithWindowsCheckbox);
-            content.Controls.Add(genGroup);
+            BuildTitleBar();
+            BuildSidebar();
+            BuildContent();
 
             // ---------- Save button ----------
             _saveButton = new Button
             {
                 Text = "💾  Save & Close",
-                Left = 420,
-                Top = 588,
-                Width = 160,
+                Left = 490,
+                Top = 426,
+                Width = 150,
                 Height = 40,
                 BackColor = Accent,
                 ForeColor = Color.White,
@@ -257,6 +147,14 @@ namespace AudioDeviceTrayApp
             _saveButton.MouseLeave += (s, e) => _saveButton.BackColor = Accent;
             _saveButton.Click += SaveButton_Click;
             Controls.Add(_saveButton);
+
+            // Build the four pages
+            _headsetCombo = null!;
+            _speakersCombo = null!;
+            _micCombo = null!;
+            _volumeStepInput = null!;
+            _startWithWindowsCheckbox = null!;
+            BuildPages();
 
             // ---------- Tray ----------
             _trayMenu = new ContextMenuStrip
@@ -304,9 +202,9 @@ namespace AudioDeviceTrayApp
 
             FormClosing += Form1_FormClosing;
             Load += Form1_Load;
-            Paint += Form1_Paint;
 
             LoadDevicesToCombos();
+            ShowPage(0);
 
             if (IsHandleCreated)
             {
@@ -318,39 +216,367 @@ namespace AudioDeviceTrayApp
             }
         }
 
-        // ===================== UI helpers =====================
+        // ===================== Window chrome =====================
 
-        private GroupBox CreateGroup(string title, int top, int height)
+        private void BuildTitleBar()
         {
-            return new GroupBox
+            var titleBar = new Panel
             {
-                Text = title,
-                Left = 8,
-                Top = top,
-                Width = 524,
-                Height = height,
-                ForeColor = TextMain,
-                Font = new Font("Segoe UI Semibold", 9.5F, FontStyle.Bold),
-                FlatStyle = FlatStyle.Flat
+                Left = 0,
+                Top = 0,
+                Width = ClientSize.Width,
+                Height = 46,
+                BackColor = Sidebar
             };
+            titleBar.Paint += (s, e) =>
+            {
+                // top accent gradient
+                using var brush = new System.Drawing.Drawing2D.LinearGradientBrush(
+                    new Rectangle(0, 0, titleBar.Width, 3),
+                    Accent, Color.FromArgb(59, 130, 246),
+                    System.Drawing.Drawing2D.LinearGradientMode.Horizontal);
+                e.Graphics.FillRectangle(brush, 0, 0, titleBar.Width, 3);
+                // bottom separator
+                using var pen = new Pen(Color.FromArgb(45, 45, 50));
+                e.Graphics.DrawLine(pen, 0, titleBar.Height - 1, titleBar.Width, titleBar.Height - 1);
+            };
+            titleBar.MouseDown += TitleBar_Drag;
+            Controls.Add(titleBar);
+
+            if (_appIcon != null)
+            {
+                var iconBox = new PictureBox
+                {
+                    Image = new Icon(_appIcon, 32, 32).ToBitmap(),
+                    SizeMode = PictureBoxSizeMode.Zoom,
+                    Left = 16,
+                    Top = 11,
+                    Width = 24,
+                    Height = 24,
+                    BackColor = Color.Transparent
+                };
+                iconBox.MouseDown += TitleBar_Drag;
+                titleBar.Controls.Add(iconBox);
+            }
+
+            var titleLbl = new Label
+            {
+                Text = "SoundDeck",
+                Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold),
+                ForeColor = Accent,
+                AutoSize = true,
+                Left = 48,
+                Top = 12,
+                BackColor = Color.Transparent
+            };
+            titleLbl.MouseDown += TitleBar_Drag;
+            titleBar.Controls.Add(titleLbl);
+
+            var closeBtn = MakeChromeButton("✕", ClientSize.Width - 44);
+            closeBtn.MouseEnter += (s, e) => { closeBtn.BackColor = Color.FromArgb(232, 17, 35); closeBtn.ForeColor = Color.White; };
+            closeBtn.MouseLeave += (s, e) => { closeBtn.BackColor = Sidebar; closeBtn.ForeColor = TextDim; };
+            closeBtn.Click += (s, e) => { Hide(); ShowInTaskbar = false; };
+            titleBar.Controls.Add(closeBtn);
+
+            var minBtn = MakeChromeButton("—", ClientSize.Width - 82);
+            minBtn.MouseEnter += (s, e) => minBtn.BackColor = Color.FromArgb(55, 55, 62);
+            minBtn.MouseLeave += (s, e) => minBtn.BackColor = Sidebar;
+            minBtn.Click += (s, e) => WindowState = FormWindowState.Minimized;
+            titleBar.Controls.Add(minBtn);
         }
 
-        private ComboBox AddComboRow(GroupBox group, string labelText, int top)
+        private Button MakeChromeButton(string text, int left)
+        {
+            var b = new Button
+            {
+                Text = text,
+                Left = left,
+                Top = 8,
+                Width = 34,
+                Height = 30,
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = TextDim,
+                BackColor = Sidebar,
+                Font = new Font("Segoe UI", 10F),
+                Cursor = Cursors.Hand,
+                TabStop = false
+            };
+            b.FlatAppearance.BorderSize = 0;
+            return b;
+        }
+
+        private void TitleBar_Drag(object? sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            ReleaseCapture();
+            SendMessage(Handle, WM_NCLBUTTONDOWN, HTCAPTION, IntPtr.Zero);
+        }
+
+        private void BuildSidebar()
+        {
+            var sidebar = new Panel
+            {
+                Left = 0,
+                Top = 46,
+                Width = 150,
+                Height = ClientSize.Height - 46,
+                BackColor = Sidebar
+            };
+            Controls.Add(sidebar);
+
+            string[] items = { "🎧   Output", "🎤   Microphone", "🔊   Volume", "⚙️   General" };
+            int top = 14;
+            for (int i = 0; i < items.Length; i++)
+            {
+                int index = i;
+                var b = new Button
+                {
+                    Text = items[i],
+                    Left = 0,
+                    Top = top,
+                    Width = 150,
+                    Height = 48,
+                    FlatStyle = FlatStyle.Flat,
+                    TextAlign = ContentAlignment.MiddleLeft,
+                    Padding = new Padding(18, 0, 0, 0),
+                    Font = new Font("Segoe UI", 10F),
+                    ForeColor = TextDim,
+                    BackColor = Sidebar,
+                    Cursor = Cursors.Hand,
+                    TabStop = false
+                };
+                b.FlatAppearance.BorderSize = 0;
+                b.FlatAppearance.MouseOverBackColor = NavSelected;
+                b.Click += (s, e) => ShowPage(index);
+                sidebar.Controls.Add(b);
+                _navButtons.Add(b);
+                top += 48;
+            }
+        }
+
+        private Panel _content = null!;
+
+        private void BuildContent()
+        {
+            _content = new Panel
+            {
+                Left = 150,
+                Top = 46,
+                Width = ClientSize.Width - 150,
+                Height = 370,
+                BackColor = Bg
+            };
+            Controls.Add(_content);
+        }
+
+        private void ShowPage(int index)
+        {
+            for (int i = 0; i < _navButtons.Count; i++)
+            {
+                bool selected = i == index;
+                _navButtons[i].BackColor = selected ? NavSelected : Sidebar;
+                _navButtons[i].ForeColor = selected ? Accent : TextDim;
+                _navButtons[i].Font = new Font("Segoe UI", 10F,
+                    selected ? FontStyle.Bold : FontStyle.Regular);
+                if (i < _navPages.Count)
+                {
+                    _navPages[i].Visible = selected;
+                    if (selected) _navPages[i].BringToFront();
+                }
+            }
+        }
+
+        // ===================== Pages =====================
+
+        private void BuildPages()
+        {
+            // ---- Output ----
+            var outPage = NewPage("🎧  Output");
+            _headsetCombo = AddComboRow(outPage, "Headset:", 64);
+            _speakersCombo = AddComboRow(outPage, "Speakers:", 104);
+            AddSubHeading(outPage, "Hotkeys", 152);
+            AddHotkeyRow(outPage, "Headset:", 186,
+                () => _settings.HeadsetHotkey, v => _settings.HeadsetHotkey = v);
+            AddHotkeyRow(outPage, "Speakers:", 224,
+                () => _settings.SpeakersHotkey, v => _settings.SpeakersHotkey = v);
+            AddHotkeyRow(outPage, "Cycle device:", 262,
+                () => _settings.CycleOutputHotkey, v => _settings.CycleOutputHotkey = v);
+
+            // ---- Microphone ----
+            var micPage = NewPage("🎤  Microphone");
+            _micCombo = AddComboRow(micPage, "Device:", 64);
+            AddSubHeading(micPage, "Hotkeys", 112);
+            AddHotkeyRow(micPage, "Set default:", 146,
+                () => _settings.MicSwitchHotkey, v => _settings.MicSwitchHotkey = v);
+            AddHotkeyRow(micPage, "Mute toggle:", 184,
+                () => _settings.MicMuteHotkey, v => _settings.MicMuteHotkey = v);
+
+            // ---- Volume ----
+            var volPage = NewPage("🔊  Master Volume");
+            AddHotkeyRow(volPage, "Volume up:", 64,
+                () => _settings.VolumeUpHotkey, v => _settings.VolumeUpHotkey = v);
+            AddHotkeyRow(volPage, "Volume down:", 102,
+                () => _settings.VolumeDownHotkey, v => _settings.VolumeDownHotkey = v);
+            AddHotkeyRow(volPage, "Mute toggle:", 140,
+                () => _settings.VolumeMuteHotkey, v => _settings.VolumeMuteHotkey = v);
+
+            var stepLabel = new Label
+            {
+                Text = "Step size:",
+                AutoSize = true,
+                Left = 24,
+                Top = 191,
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = LabelColor
+            };
+            _volumeStepInput = new NumericUpDown
+            {
+                Left = 130,
+                Top = 188,
+                Width = 70,
+                Minimum = 1,
+                Maximum = 50,
+                Value = Math.Clamp(_settings.VolumeStep, 1, 50),
+                BackColor = Surface,
+                ForeColor = Color.WhiteSmoke,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Segoe UI", 9F)
+            };
+            _volumeStepInput.ValueChanged += (s, e) =>
+            {
+                _settings.VolumeStep = (int)_volumeStepInput.Value;
+                SaveSettings();
+            };
+            var stepHint = new Label
+            {
+                Text = "% per key press",
+                AutoSize = true,
+                Left = 210,
+                Top = 191,
+                ForeColor = TextHint,
+                Font = new Font("Segoe UI", 8F, FontStyle.Italic)
+            };
+            volPage.Controls.Add(stepLabel);
+            volPage.Controls.Add(_volumeStepInput);
+            volPage.Controls.Add(stepHint);
+
+            // ---- General ----
+            var genPage = NewPage("⚙️  General");
+            _startWithWindowsCheckbox = new CheckBox
+            {
+                Text = "🚀  Start with Windows",
+                Left = 24,
+                Top = 70,
+                Width = 280,
+                ForeColor = LabelColor,
+                Font = new Font("Segoe UI", 9.5F),
+                Checked = _settings.StartWithWindows
+            };
+            _startWithWindowsCheckbox.CheckedChanged += StartWithWindowsCheckbox_CheckedChanged;
+            genPage.Controls.Add(_startWithWindowsCheckbox);
+
+            var updateBtn = new Button
+            {
+                Text = "🔄  Check for Updates",
+                Left = 24,
+                Top = 118,
+                Width = 200,
+                Height = 36,
+                BackColor = Surface,
+                ForeColor = TextMain,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9.5F),
+                Cursor = Cursors.Hand,
+                TabStop = false
+            };
+            updateBtn.FlatAppearance.BorderColor = Accent;
+            updateBtn.FlatAppearance.BorderSize = 1;
+            updateBtn.Click += async (s, e) => await CheckForUpdatesInteractiveAsync();
+            genPage.Controls.Add(updateBtn);
+
+            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            var versionLabel = new Label
+            {
+                Text = $"SoundDeck v{version?.Major}.{version?.Minor}.{version?.Build}",
+                AutoSize = true,
+                Left = 24,
+                Top = 300,
+                ForeColor = TextHint,
+                Font = new Font("Segoe UI", 8.5F)
+            };
+            genPage.Controls.Add(versionLabel);
+        }
+
+        private Panel NewPage(string heading)
+        {
+            var page = new Panel
+            {
+                Left = 0,
+                Top = 0,
+                Width = _content.Width,
+                Height = _content.Height,
+                BackColor = Bg,
+                Visible = false
+            };
+
+            var headingLabel = new Label
+            {
+                Text = heading,
+                Font = new Font("Segoe UI Semibold", 14F, FontStyle.Bold),
+                ForeColor = Accent,
+                AutoSize = true,
+                Left = 22,
+                Top = 18
+            };
+            page.Controls.Add(headingLabel);
+
+            _content.Controls.Add(page);
+            _navPages.Add(page);
+            return page;
+        }
+
+        private void AddSubHeading(Panel page, string text, int top)
+        {
+            var lbl = new Label
+            {
+                Text = text.ToUpperInvariant(),
+                Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold),
+                ForeColor = TextHint,
+                AutoSize = true,
+                Left = 24,
+                Top = top
+            };
+            page.Controls.Add(lbl);
+
+            var line = new Panel
+            {
+                Left = 24,
+                Top = top + 20,
+                Width = page.Width - 60,
+                Height = 1,
+                BackColor = Color.FromArgb(45, 45, 50)
+            };
+            page.Controls.Add(line);
+        }
+
+        // ===================== Row helpers =====================
+
+        private ComboBox AddComboRow(Panel page, string labelText, int top)
         {
             var label = new Label
             {
                 Text = labelText,
                 AutoSize = true,
-                Left = 20,
-                Top = top + 3,
+                Left = 24,
+                Top = top + 4,
                 Font = new Font("Segoe UI", 9F),
-                ForeColor = Color.FromArgb(212, 212, 216)
+                ForeColor = LabelColor
             };
             var combo = new ComboBox
             {
                 Left = 130,
                 Top = top,
-                Width = 370,
+                Width = 340,
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor = Surface,
                 ForeColor = Color.WhiteSmoke,
@@ -358,29 +584,29 @@ namespace AudioDeviceTrayApp
                 Font = new Font("Segoe UI", 9F),
                 DisplayMember = "Name"
             };
-            group.Controls.Add(label);
-            group.Controls.Add(combo);
+            page.Controls.Add(label);
+            page.Controls.Add(combo);
             return combo;
         }
 
-        private void AddHotkeyRow(GroupBox group, string labelText, int top,
+        private void AddHotkeyRow(Panel page, string labelText, int top,
             Func<HotkeyConfig?> get, Action<HotkeyConfig?> set)
         {
             var label = new Label
             {
                 Text = labelText,
                 AutoSize = true,
-                Left = 20,
-                Top = top + 3,
+                Left = 24,
+                Top = top + 4,
                 Font = new Font("Segoe UI", 9F),
-                ForeColor = Color.FromArgb(212, 212, 216)
+                ForeColor = LabelColor
             };
 
             var box = new TextBox
             {
                 Left = 130,
                 Top = top,
-                Width = 220,
+                Width = 190,
                 Height = 28,
                 ReadOnly = true,
                 BackColor = Surface,
@@ -395,7 +621,6 @@ namespace AudioDeviceTrayApp
             {
                 e.SuppressKeyPress = true;
 
-                // Backspace / Delete clears the hotkey
                 if (e.KeyCode == Keys.Back || e.KeyCode == Keys.Delete)
                 {
                     set(null);
@@ -424,15 +649,15 @@ namespace AudioDeviceTrayApp
             {
                 Text = "Click & press (Del clears)",
                 AutoSize = true,
-                Left = 360,
-                Top = top + 3,
+                Left = 330,
+                Top = top + 4,
                 ForeColor = TextHint,
                 Font = new Font("Segoe UI", 8F, FontStyle.Italic)
             };
 
-            group.Controls.Add(label);
-            group.Controls.Add(box);
-            group.Controls.Add(hint);
+            page.Controls.Add(label);
+            page.Controls.Add(box);
+            page.Controls.Add(hint);
         }
 
         // ===================== Hotkey parsing =====================
@@ -492,17 +717,7 @@ namespace AudioDeviceTrayApp
             }
         }
 
-        // ===================== Painting / lifecycle =====================
-
-        private void Form1_Paint(object? sender, PaintEventArgs e)
-        {
-            using var brush = new System.Drawing.Drawing2D.LinearGradientBrush(
-                new Rectangle(0, 0, Width, 3),
-                Accent,
-                Color.FromArgb(59, 130, 246),
-                System.Drawing.Drawing2D.LinearGradientMode.Horizontal);
-            e.Graphics.FillRectangle(brush, 0, 0, Width, 3);
-        }
+        // ===================== Lifecycle =====================
 
         private void Form1_Load(object? sender, EventArgs e)
         {
