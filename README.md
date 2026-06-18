@@ -29,10 +29,9 @@
 
 ## 🚀 Features
 
-- 🎧 **Quick Device Switching** — Jump between your headset and speakers instantly
-- 🔁 **Cycle Output Devices** — One hotkey to rotate through every active playback device
-- 🎤 **Microphone Control** — Set your default mic and mute/unmute it with a hotkey
-- 🔊 **Master Volume Hotkeys** — Volume up, down and mute from anywhere, with a configurable step
+- 🎧 **Quick Device Switching** — Jump to your headset or speakers instantly
+- 🔁 **Output Toggle** — One hotkey to flip between your chosen headset and speakers
+- 🎤 **Dual Microphone Switching** — Pick two mics and toggle between them with a single key
 - ⌨️ **Global Hotkeys** — Custom keyboard shortcuts that work system-wide
 - 🔔 **Notifications** — Visual feedback every time something changes
 - 💾 **Auto-Save** — Your preferences are stored automatically
@@ -82,12 +81,11 @@ SoundDeck keeps itself up to date — you never have to download and reinstall a
 ### Initial Setup
 
 1. **Open settings** — double-click the tray icon 🎛️ or right-click → ⚙️ Settings
-2. **Output Devices** — pick your **Headset** and **Speakers**
-3. **Microphone** — pick the mic you want as default
+2. **Output** — pick your **Headset** and **Speakers**
+3. **Microphone** — pick **Mic 1** and **Mic 2**
 4. **Set hotkeys** — click any hotkey box and press your key combo (`Ctrl` / `Alt` / `Shift` + key). Press `Delete` to clear a hotkey.
-5. **Master Volume** — set the step size (% per key press)
-6. **Start with Windows** (optional) — enable auto-start
-7. Click 💾 **Save & Close**
+5. **Start with Windows** (optional) — enable auto-start
+6. Click 💾 **Save & Close**
 
 Settings are stored in: `%AppData%\SoundDeck\settings.json`
 
@@ -97,15 +95,13 @@ Settings are stored in: `%AppData%\SoundDeck\settings.json`
 |--------|-------------|
 | 🎧 Switch to Headset | Set your headset as the default output |
 | 🔊 Switch to Speakers | Set your speakers as the default output |
-| 🔁 Cycle output device | Rotate through all active playback devices |
-| 🎤 Set default mic | Make your chosen microphone the default |
-| 🔇 Mic mute toggle | Mute/unmute the current microphone |
-| 🔊 Volume up / down | Raise or lower master volume by the step size |
-| 🔇 Volume mute toggle | Mute/unmute master volume |
+| 🔁 Output toggle | Flip between headset and speakers |
+| 🎤 Switch to Mic 1 / Mic 2 | Set the chosen microphone as default |
+| 🔁 Microphone toggle | Flip between Mic 1 and Mic 2 |
 
 ### Switching from the tray
 
-Right-click the tray icon for quick access to device switching, microphone mute and settings.
+Right-click the tray icon for quick access to output/microphone switching and settings.
 
 ---
 
@@ -120,10 +116,10 @@ Combine any modifiers with a key:
 ```
 Ctrl+Alt+H       → Switch to Headset
 Ctrl+Alt+S       → Switch to Speakers
-Ctrl+Alt+C       → Cycle output device
-Ctrl+Alt+M       → Toggle microphone mute
-Ctrl+Alt+Up      → Volume up
-Ctrl+Alt+Down    → Volume down
+Ctrl+Alt+O       → Toggle output (headset ⇄ speakers)
+Ctrl+Alt+1       → Switch to Mic 1
+Ctrl+Alt+2       → Switch to Mic 2
+Ctrl+Alt+M       → Toggle microphone (Mic 1 ⇄ Mic 2)
 ```
 
 ---

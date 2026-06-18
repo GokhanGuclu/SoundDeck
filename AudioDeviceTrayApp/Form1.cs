@@ -25,10 +25,10 @@ namespace AudioDeviceTrayApp
         private ComboBox _speakersCombo;
 
         // ---- Microphone ----
-        private ComboBox _micCombo;
+        private ComboBox _mic1Combo;
+        private ComboBox _mic2Combo;
 
         // ---- General ----
-        private NumericUpDown _volumeStepInput;
         private CheckBox _startWithWindowsCheckbox;
         private readonly Button _saveButton;
 
@@ -44,12 +44,10 @@ namespace AudioDeviceTrayApp
         // ---- Hotkey infrastructure ----
         private const int HK_HEADSET = 1;
         private const int HK_SPEAKERS = 2;
-        private const int HK_CYCLE = 3;
-        private const int HK_MIC_SWITCH = 4;
-        private const int HK_MIC_MUTE = 5;
-        private const int HK_VOL_UP = 6;
-        private const int HK_VOL_DOWN = 7;
-        private const int HK_VOL_MUTE = 8;
+        private const int HK_OUTPUT_TOGGLE = 3;
+        private const int HK_MIC1 = 4;
+        private const int HK_MIC2 = 5;
+        private const int HK_MIC_TOGGLE = 6;
 
         private const int WM_HOTKEY = 0x0312;
         private const uint MOD_ALT = 0x0001;
@@ -148,11 +146,11 @@ namespace AudioDeviceTrayApp
             _saveButton.Click += SaveButton_Click;
             Controls.Add(_saveButton);
 
-            // Build the four pages
+            // Build the pages
             _headsetCombo = null!;
             _speakersCombo = null!;
-            _micCombo = null!;
-            _volumeStepInput = null!;
+            _mic1Combo = null!;
+            _mic2Combo = null!;
             _startWithWindowsCheckbox = null!;
             BuildPages();
 
@@ -167,10 +165,11 @@ namespace AudioDeviceTrayApp
             {
                 new ToolStripMenuItem("🎧  Switch to Headset", null, (s, e) => SwitchOutput(_settings.HeadsetDeviceId, "Headset")),
                 new ToolStripMenuItem("🔊  Switch to Speakers", null, (s, e) => SwitchOutput(_settings.SpeakersDeviceId, "Speakers")),
-                new ToolStripMenuItem("🔁  Cycle Output Device", null, (s, e) => CycleOutput()),
+                new ToolStripMenuItem("🔁  Toggle Output (Headset ⇄ Speakers)", null, (s, e) => ToggleOutput()),
                 new ToolStripSeparator(),
-                new ToolStripMenuItem("🎤  Switch to Microphone", null, (s, e) => SwitchMic()),
-                new ToolStripMenuItem("🔇  Mute Microphone", null, (s, e) => ToggleMicMute()),
+                new ToolStripMenuItem("🎤  Switch to Mic 1", null, (s, e) => SwitchMic(_settings.Mic1DeviceId)),
+                new ToolStripMenuItem("🎙️  Switch to Mic 2", null, (s, e) => SwitchMic(_settings.Mic2DeviceId)),
+                new ToolStripMenuItem("🔁  Toggle Microphone (Mic 1 ⇄ Mic 2)", null, (s, e) => ToggleMic()),
                 new ToolStripSeparator(),
                 new ToolStripMenuItem("🔄  Check for Updates...", null, async (s, e) => await CheckForUpdatesInteractiveAsync()),
                 new ToolStripMenuItem("⚙️  Settings...", null, OnSettings),
@@ -190,14 +189,12 @@ namespace AudioDeviceTrayApp
             // ---------- Hotkey bindings ----------
             _hotkeyBindings = new List<HotkeyBinding>
             {
-                new() { Id = HK_HEADSET,    Get = () => _settings.HeadsetHotkey,      Action = () => SwitchOutput(_settings.HeadsetDeviceId, "Headset") },
-                new() { Id = HK_SPEAKERS,   Get = () => _settings.SpeakersHotkey,     Action = () => SwitchOutput(_settings.SpeakersDeviceId, "Speakers") },
-                new() { Id = HK_CYCLE,      Get = () => _settings.CycleOutputHotkey,  Action = CycleOutput },
-                new() { Id = HK_MIC_SWITCH, Get = () => _settings.MicSwitchHotkey,    Action = SwitchMic },
-                new() { Id = HK_MIC_MUTE,   Get = () => _settings.MicMuteHotkey,      Action = ToggleMicMute },
-                new() { Id = HK_VOL_UP,     Get = () => _settings.VolumeUpHotkey,     Action = () => AdjustVolume(+_settings.VolumeStep) },
-                new() { Id = HK_VOL_DOWN,   Get = () => _settings.VolumeDownHotkey,   Action = () => AdjustVolume(-_settings.VolumeStep) },
-                new() { Id = HK_VOL_MUTE,   Get = () => _settings.VolumeMuteHotkey,   Action = ToggleVolumeMute },
+                new() { Id = HK_HEADSET,       Get = () => _settings.HeadsetHotkey,      Action = () => SwitchOutput(_settings.HeadsetDeviceId, "Headset") },
+                new() { Id = HK_SPEAKERS,      Get = () => _settings.SpeakersHotkey,     Action = () => SwitchOutput(_settings.SpeakersDeviceId, "Speakers") },
+                new() { Id = HK_OUTPUT_TOGGLE, Get = () => _settings.OutputToggleHotkey, Action = ToggleOutput },
+                new() { Id = HK_MIC1,          Get = () => _settings.Mic1Hotkey,         Action = () => SwitchMic(_settings.Mic1DeviceId) },
+                new() { Id = HK_MIC2,          Get = () => _settings.Mic2Hotkey,         Action = () => SwitchMic(_settings.Mic2DeviceId) },
+                new() { Id = HK_MIC_TOGGLE,    Get = () => _settings.MicToggleHotkey,    Action = ToggleMic },
             };
 
             FormClosing += Form1_FormClosing;
@@ -230,13 +227,11 @@ namespace AudioDeviceTrayApp
             };
             titleBar.Paint += (s, e) =>
             {
-                // top accent gradient
                 using var brush = new System.Drawing.Drawing2D.LinearGradientBrush(
                     new Rectangle(0, 0, titleBar.Width, 3),
                     Accent, Color.FromArgb(59, 130, 246),
                     System.Drawing.Drawing2D.LinearGradientMode.Horizontal);
                 e.Graphics.FillRectangle(brush, 0, 0, titleBar.Width, 3);
-                // bottom separator
                 using var pen = new Pen(Color.FromArgb(45, 45, 50));
                 e.Graphics.DrawLine(pen, 0, titleBar.Height - 1, titleBar.Width, titleBar.Height - 1);
             };
@@ -324,7 +319,7 @@ namespace AudioDeviceTrayApp
             };
             Controls.Add(sidebar);
 
-            string[] items = { "🎧   Output", "🎤   Microphone", "🔊   Volume", "⚙️   General" };
+            string[] items = { "🎧   Output", "🎤   Microphone", "⚙️   General" };
             int top = 14;
             for (int i = 0; i < items.Length; i++)
             {
@@ -399,66 +394,22 @@ namespace AudioDeviceTrayApp
                 () => _settings.HeadsetHotkey, v => _settings.HeadsetHotkey = v);
             AddHotkeyRow(outPage, "Speakers:", 224,
                 () => _settings.SpeakersHotkey, v => _settings.SpeakersHotkey = v);
-            AddHotkeyRow(outPage, "Cycle device:", 262,
-                () => _settings.CycleOutputHotkey, v => _settings.CycleOutputHotkey = v);
+            AddHotkeyRow(outPage, "Switch:", 262,
+                () => _settings.OutputToggleHotkey, v => _settings.OutputToggleHotkey = v,
+                "Toggle Headset / Speakers");
 
             // ---- Microphone ----
             var micPage = NewPage("🎤  Microphone");
-            _micCombo = AddComboRow(micPage, "Device:", 64);
-            AddSubHeading(micPage, "Hotkeys", 112);
-            AddHotkeyRow(micPage, "Set default:", 146,
-                () => _settings.MicSwitchHotkey, v => _settings.MicSwitchHotkey = v);
-            AddHotkeyRow(micPage, "Mute toggle:", 184,
-                () => _settings.MicMuteHotkey, v => _settings.MicMuteHotkey = v);
-
-            // ---- Volume ----
-            var volPage = NewPage("🔊  Master Volume");
-            AddHotkeyRow(volPage, "Volume up:", 64,
-                () => _settings.VolumeUpHotkey, v => _settings.VolumeUpHotkey = v);
-            AddHotkeyRow(volPage, "Volume down:", 102,
-                () => _settings.VolumeDownHotkey, v => _settings.VolumeDownHotkey = v);
-            AddHotkeyRow(volPage, "Mute toggle:", 140,
-                () => _settings.VolumeMuteHotkey, v => _settings.VolumeMuteHotkey = v);
-
-            var stepLabel = new Label
-            {
-                Text = "Step size:",
-                AutoSize = true,
-                Left = 24,
-                Top = 191,
-                Font = new Font("Segoe UI", 9F),
-                ForeColor = LabelColor
-            };
-            _volumeStepInput = new NumericUpDown
-            {
-                Left = 130,
-                Top = 188,
-                Width = 70,
-                Minimum = 1,
-                Maximum = 50,
-                Value = Math.Clamp(_settings.VolumeStep, 1, 50),
-                BackColor = Surface,
-                ForeColor = Color.WhiteSmoke,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 9F)
-            };
-            _volumeStepInput.ValueChanged += (s, e) =>
-            {
-                _settings.VolumeStep = (int)_volumeStepInput.Value;
-                SaveSettings();
-            };
-            var stepHint = new Label
-            {
-                Text = "% per key press",
-                AutoSize = true,
-                Left = 210,
-                Top = 191,
-                ForeColor = TextHint,
-                Font = new Font("Segoe UI", 8F, FontStyle.Italic)
-            };
-            volPage.Controls.Add(stepLabel);
-            volPage.Controls.Add(_volumeStepInput);
-            volPage.Controls.Add(stepHint);
+            _mic1Combo = AddComboRow(micPage, "Mic 1:", 64);
+            _mic2Combo = AddComboRow(micPage, "Mic 2:", 104);
+            AddSubHeading(micPage, "Hotkeys", 152);
+            AddHotkeyRow(micPage, "Mic 1:", 186,
+                () => _settings.Mic1Hotkey, v => _settings.Mic1Hotkey = v);
+            AddHotkeyRow(micPage, "Mic 2:", 224,
+                () => _settings.Mic2Hotkey, v => _settings.Mic2Hotkey = v);
+            AddHotkeyRow(micPage, "Switch:", 262,
+                () => _settings.MicToggleHotkey, v => _settings.MicToggleHotkey = v,
+                "Toggle Mic 1 / Mic 2");
 
             // ---- General ----
             var genPage = NewPage("⚙️  General");
@@ -590,7 +541,8 @@ namespace AudioDeviceTrayApp
         }
 
         private void AddHotkeyRow(Panel page, string labelText, int top,
-            Func<HotkeyConfig?> get, Action<HotkeyConfig?> set)
+            Func<HotkeyConfig?> get, Action<HotkeyConfig?> set,
+            string hintText = "Click & press (Del clears)")
         {
             var label = new Label
             {
@@ -647,7 +599,7 @@ namespace AudioDeviceTrayApp
 
             var hint = new Label
             {
-                Text = "Click & press (Del clears)",
+                Text = hintText,
                 AutoSize = true,
                 Left = 330,
                 Top = top + 4,
@@ -836,7 +788,8 @@ namespace AudioDeviceTrayApp
 
             FillCombo(_headsetCombo, playback, _settings.HeadsetDeviceId);
             FillCombo(_speakersCombo, playback, _settings.SpeakersDeviceId);
-            FillCombo(_micCombo, capture, _settings.MicDeviceId);
+            FillCombo(_mic1Combo, capture, _settings.Mic1DeviceId);
+            FillCombo(_mic2Combo, capture, _settings.Mic2DeviceId);
         }
 
         private static void FillCombo(ComboBox combo, List<AudioDeviceView> devices, string? selectedId)
@@ -864,10 +817,11 @@ namespace AudioDeviceTrayApp
             if (_speakersCombo.SelectedItem is AudioDeviceView speakers)
                 _settings.SpeakersDeviceId = speakers.Id;
 
-            if (_micCombo.SelectedItem is AudioDeviceView mic)
-                _settings.MicDeviceId = mic.Id;
+            if (_mic1Combo.SelectedItem is AudioDeviceView mic1)
+                _settings.Mic1DeviceId = mic1.Id;
 
-            _settings.VolumeStep = (int)_volumeStepInput.Value;
+            if (_mic2Combo.SelectedItem is AudioDeviceView mic2)
+                _settings.Mic2DeviceId = mic2.Id;
 
             SaveSettings();
             RegisterAllHotkeys();
@@ -928,41 +882,40 @@ namespace AudioDeviceTrayApp
             }
         }
 
-        private void CycleOutput()
+        private void ToggleOutput()
         {
-            try
-            {
-                var devices = _audioController.GetPlaybackDevices(DeviceState.Active).ToList();
-                if (devices.Count == 0) return;
+            var headset = _settings.HeadsetDeviceId;
+            var speakers = _settings.SpeakersDeviceId;
 
-                var current = _audioController.DefaultPlaybackDevice;
-                int index = current != null
-                    ? devices.FindIndex(d => d.Id == current.Id)
-                    : -1;
-
-                var next = devices[(index + 1) % devices.Count];
-                next.SetAsDefault();
-                ShowBalloon("Output Device", "Switched to: " + next.FullName);
-            }
-            catch (Exception ex)
+            if (string.IsNullOrEmpty(headset) || string.IsNullOrEmpty(speakers))
             {
-                MessageBox.Show("Failed to cycle device: " + ex.Message,
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Configure both Headset and Speakers first.",
+                    "Not configured", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
             }
+
+            var current = _audioController.DefaultPlaybackDevice?.Id.ToString();
+            string target = current == headset ? speakers : headset;
+            SwitchOutput(target, "Output");
         }
 
-        private void SwitchMic()
+        private void SwitchMic(string? deviceId)
         {
-            if (string.IsNullOrEmpty(_settings.MicDeviceId))
+            if (string.IsNullOrEmpty(deviceId))
             {
-                MessageBox.Show("Microphone device is not configured. Open Settings first.",
+                MessageBox.Show("Microphone is not configured. Open Settings first.",
                     "Not configured", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
             try
             {
-                if (!Guid.TryParse(_settings.MicDeviceId, out var guid)) return;
+                if (!Guid.TryParse(deviceId, out var guid))
+                {
+                    MessageBox.Show("Invalid microphone id stored in settings.",
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
 
                 var device = _audioController.GetDevice(guid);
                 if (device == null)
@@ -982,58 +935,21 @@ namespace AudioDeviceTrayApp
             }
         }
 
-        private void ToggleMicMute()
+        private void ToggleMic()
         {
-            try
-            {
-                var mic = _audioController.DefaultCaptureDevice;
-                if (mic == null) return;
+            var mic1 = _settings.Mic1DeviceId;
+            var mic2 = _settings.Mic2DeviceId;
 
-                bool target = !mic.IsMuted;
-                mic.Mute(target);
-                ShowBalloon("Microphone", target ? "Microphone muted 🔇" : "Microphone on 🎤");
-            }
-            catch (Exception ex)
+            if (string.IsNullOrEmpty(mic1) || string.IsNullOrEmpty(mic2))
             {
-                MessageBox.Show("Failed to toggle microphone: " + ex.Message,
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Configure both Mic 1 and Mic 2 first.",
+                    "Not configured", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
             }
-        }
 
-        private void AdjustVolume(int delta)
-        {
-            try
-            {
-                var dev = _audioController.DefaultPlaybackDevice;
-                if (dev == null) return;
-
-                double target = Math.Clamp(dev.Volume + delta, 0, 100);
-                dev.Volume = target;
-                ShowBalloon("Volume", $"{dev.FullName}: {Math.Round(target)}%");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Failed to change volume: " + ex.Message,
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void ToggleVolumeMute()
-        {
-            try
-            {
-                var dev = _audioController.DefaultPlaybackDevice;
-                if (dev == null) return;
-
-                bool target = !dev.IsMuted;
-                dev.Mute(target);
-                ShowBalloon("Volume", target ? "Muted 🔇" : "Unmuted 🔊");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Failed to toggle mute: " + ex.Message,
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+            var current = _audioController.DefaultCaptureDevice?.Id.ToString();
+            string target = current == mic1 ? mic2 : mic1;
+            SwitchMic(target);
         }
 
         private void ShowBalloon(string title, string text)
@@ -1177,18 +1093,14 @@ namespace AudioDeviceTrayApp
         public string? SpeakersDeviceId { get; set; }
         public HotkeyConfig? HeadsetHotkey { get; set; }
         public HotkeyConfig? SpeakersHotkey { get; set; }
-        public HotkeyConfig? CycleOutputHotkey { get; set; }
+        public HotkeyConfig? OutputToggleHotkey { get; set; }
 
-        // Microphone
-        public string? MicDeviceId { get; set; }
-        public HotkeyConfig? MicSwitchHotkey { get; set; }
-        public HotkeyConfig? MicMuteHotkey { get; set; }
-
-        // Volume
-        public HotkeyConfig? VolumeUpHotkey { get; set; }
-        public HotkeyConfig? VolumeDownHotkey { get; set; }
-        public HotkeyConfig? VolumeMuteHotkey { get; set; }
-        public int VolumeStep { get; set; } = 5;
+        // Microphone (two devices, toggle between them)
+        public string? Mic1DeviceId { get; set; }
+        public string? Mic2DeviceId { get; set; }
+        public HotkeyConfig? Mic1Hotkey { get; set; }
+        public HotkeyConfig? Mic2Hotkey { get; set; }
+        public HotkeyConfig? MicToggleHotkey { get; set; }
 
         // General
         public bool StartWithWindows { get; set; }
