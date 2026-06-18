@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Forms;
@@ -11,6 +13,7 @@ using AudioSwitcher.AudioApi.CoreAudio;
 using Microsoft.Win32;
 using Velopack;
 using Velopack.Sources;
+using static AudioDeviceTrayApp.Localization;
 
 namespace AudioDeviceTrayApp
 {
@@ -30,16 +33,19 @@ namespace AudioDeviceTrayApp
 
         // ---- General ----
         private CheckBox _startWithWindowsCheckbox;
+        private ComboBox _languageCombo;
         private readonly Button _saveButton;
 
         // ---- Navigation ----
         private readonly List<Button> _navButtons = new();
         private readonly List<Panel> _navPages = new();
+        private Panel _navStripe = null!;
 
         private readonly CoreAudioController _audioController = new CoreAudioController();
         private AppSettings _settings = new AppSettings();
         private readonly Icon? _appIcon;
         private readonly bool _openSettingsOnStart;
+        private bool _uiReady;
 
         // ---- Hotkey infrastructure ----
         private const int HK_HEADSET = 1;
@@ -59,6 +65,7 @@ namespace AudioDeviceTrayApp
 
         private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
         private const string APP_NAME = "SoundDeck";
+        private const string RepoUrl = "https://github.com/GokhanGuclu/SoundDeck";
 
         private sealed class HotkeyBinding
         {
@@ -81,13 +88,23 @@ namespace AudioDeviceTrayApp
         [DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.ClassStyle |= 0x00020000; // CS_DROPSHADOW
+                return cp;
+            }
+        }
+
         private readonly string _settingsPath =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "SoundDeck", "settings.json");
 
         // Theme colors
         private static readonly Color Bg = Color.FromArgb(24, 24, 27);
-        private static readonly Color Sidebar = Color.FromArgb(30, 30, 33);
+        private static readonly Color SidebarColor = Color.FromArgb(30, 30, 33);
         private static readonly Color NavSelected = Color.FromArgb(45, 40, 66);
         private static readonly Color Surface = Color.FromArgb(39, 39, 42);
         private static readonly Color Accent = Color.FromArgb(139, 92, 246);
@@ -102,6 +119,13 @@ namespace AudioDeviceTrayApp
             InitializeComponent();
 
             LoadSettings();
+
+            // Pick the language (saved preference, otherwise the system language)
+            if (string.IsNullOrEmpty(_settings.Language))
+            {
+                _settings.Language = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "tr" ? "tr" : "en";
+            }
+            Localization.Lang = _settings.Language;
 
             _appIcon = LoadAppIcon();
             if (_appIcon != null)
@@ -121,6 +145,7 @@ namespace AudioDeviceTrayApp
             BackColor = Bg;
             ForeColor = Color.WhiteSmoke;
             Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
+            DoubleBuffered = true;
 
             BuildTitleBar();
             BuildSidebar();
@@ -129,7 +154,7 @@ namespace AudioDeviceTrayApp
             // ---------- Save button ----------
             _saveButton = new Button
             {
-                Text = "💾  Save & Close",
+                Text = T("btn_save"),
                 Left = 490,
                 Top = 426,
                 Width = 150,
@@ -152,6 +177,7 @@ namespace AudioDeviceTrayApp
             _mic1Combo = null!;
             _mic2Combo = null!;
             _startWithWindowsCheckbox = null!;
+            _languageCombo = null!;
             BuildPages();
 
             // ---------- Tray ----------
@@ -163,18 +189,18 @@ namespace AudioDeviceTrayApp
             };
             _trayMenu.Items.AddRange(new ToolStripItem[]
             {
-                new ToolStripMenuItem("🎧  Switch to Headset", null, (s, e) => SwitchOutput(_settings.HeadsetDeviceId, "Headset")),
-                new ToolStripMenuItem("🔊  Switch to Speakers", null, (s, e) => SwitchOutput(_settings.SpeakersDeviceId, "Speakers")),
-                new ToolStripMenuItem("🔁  Toggle Output (Headset ⇄ Speakers)", null, (s, e) => ToggleOutput()),
+                new ToolStripMenuItem(T("tray_headset"), null, (s, e) => SwitchOutput(_settings.HeadsetDeviceId, T("dev_headset"))),
+                new ToolStripMenuItem(T("tray_speakers"), null, (s, e) => SwitchOutput(_settings.SpeakersDeviceId, T("dev_speakers"))),
+                new ToolStripMenuItem(T("tray_output_toggle"), null, (s, e) => ToggleOutput()),
                 new ToolStripSeparator(),
-                new ToolStripMenuItem("🎤  Switch to Mic 1", null, (s, e) => SwitchMic(_settings.Mic1DeviceId)),
-                new ToolStripMenuItem("🎙️  Switch to Mic 2", null, (s, e) => SwitchMic(_settings.Mic2DeviceId)),
-                new ToolStripMenuItem("🔁  Toggle Microphone (Mic 1 ⇄ Mic 2)", null, (s, e) => ToggleMic()),
+                new ToolStripMenuItem(T("tray_mic1"), null, (s, e) => SwitchMic(_settings.Mic1DeviceId)),
+                new ToolStripMenuItem(T("tray_mic2"), null, (s, e) => SwitchMic(_settings.Mic2DeviceId)),
+                new ToolStripMenuItem(T("tray_mic_toggle"), null, (s, e) => ToggleMic()),
                 new ToolStripSeparator(),
-                new ToolStripMenuItem("🔄  Check for Updates...", null, async (s, e) => await CheckForUpdatesInteractiveAsync()),
-                new ToolStripMenuItem("⚙️  Settings...", null, OnSettings),
+                new ToolStripMenuItem(T("tray_updates"), null, async (s, e) => await CheckForUpdatesInteractiveAsync()),
+                new ToolStripMenuItem(T("tray_settings"), null, OnSettings),
                 new ToolStripSeparator(),
-                new ToolStripMenuItem("❌  Exit", null, OnExit)
+                new ToolStripMenuItem(T("tray_exit"), null, OnExit)
             });
 
             _trayIcon = new NotifyIcon
@@ -189,8 +215,8 @@ namespace AudioDeviceTrayApp
             // ---------- Hotkey bindings ----------
             _hotkeyBindings = new List<HotkeyBinding>
             {
-                new() { Id = HK_HEADSET,       Get = () => _settings.HeadsetHotkey,      Action = () => SwitchOutput(_settings.HeadsetDeviceId, "Headset") },
-                new() { Id = HK_SPEAKERS,      Get = () => _settings.SpeakersHotkey,     Action = () => SwitchOutput(_settings.SpeakersDeviceId, "Speakers") },
+                new() { Id = HK_HEADSET,       Get = () => _settings.HeadsetHotkey,      Action = () => SwitchOutput(_settings.HeadsetDeviceId, T("dev_headset")) },
+                new() { Id = HK_SPEAKERS,      Get = () => _settings.SpeakersHotkey,     Action = () => SwitchOutput(_settings.SpeakersDeviceId, T("dev_speakers")) },
                 new() { Id = HK_OUTPUT_TOGGLE, Get = () => _settings.OutputToggleHotkey, Action = ToggleOutput },
                 new() { Id = HK_MIC1,          Get = () => _settings.Mic1Hotkey,         Action = () => SwitchMic(_settings.Mic1DeviceId) },
                 new() { Id = HK_MIC2,          Get = () => _settings.Mic2Hotkey,         Action = () => SwitchMic(_settings.Mic2DeviceId) },
@@ -202,6 +228,8 @@ namespace AudioDeviceTrayApp
 
             LoadDevicesToCombos();
             ShowPage(0);
+            ApplyRoundedRegion();
+            _uiReady = true;
 
             if (IsHandleCreated)
             {
@@ -211,6 +239,19 @@ namespace AudioDeviceTrayApp
             {
                 HandleCreated += (s, e) => RegisterAllHotkeys();
             }
+        }
+
+        private void ApplyRoundedRegion()
+        {
+            int r = 16;
+            int w = Width, h = Height;
+            using var path = new System.Drawing.Drawing2D.GraphicsPath();
+            path.AddArc(0, 0, r, r, 180, 90);
+            path.AddArc(w - r, 0, r, r, 270, 90);
+            path.AddArc(w - r, h - r, r, r, 0, 90);
+            path.AddArc(0, h - r, r, r, 90, 90);
+            path.CloseFigure();
+            Region = new Region(path);
         }
 
         // ===================== Window chrome =====================
@@ -223,7 +264,7 @@ namespace AudioDeviceTrayApp
                 Top = 0,
                 Width = ClientSize.Width,
                 Height = 46,
-                BackColor = Sidebar
+                BackColor = SidebarColor
             };
             titleBar.Paint += (s, e) =>
             {
@@ -269,13 +310,13 @@ namespace AudioDeviceTrayApp
 
             var closeBtn = MakeChromeButton("✕", ClientSize.Width - 44);
             closeBtn.MouseEnter += (s, e) => { closeBtn.BackColor = Color.FromArgb(232, 17, 35); closeBtn.ForeColor = Color.White; };
-            closeBtn.MouseLeave += (s, e) => { closeBtn.BackColor = Sidebar; closeBtn.ForeColor = TextDim; };
+            closeBtn.MouseLeave += (s, e) => { closeBtn.BackColor = SidebarColor; closeBtn.ForeColor = TextDim; };
             closeBtn.Click += (s, e) => { Hide(); ShowInTaskbar = false; };
             titleBar.Controls.Add(closeBtn);
 
             var minBtn = MakeChromeButton("—", ClientSize.Width - 82);
             minBtn.MouseEnter += (s, e) => minBtn.BackColor = Color.FromArgb(55, 55, 62);
-            minBtn.MouseLeave += (s, e) => minBtn.BackColor = Sidebar;
+            minBtn.MouseLeave += (s, e) => minBtn.BackColor = SidebarColor;
             minBtn.Click += (s, e) => WindowState = FormWindowState.Minimized;
             titleBar.Controls.Add(minBtn);
         }
@@ -291,7 +332,7 @@ namespace AudioDeviceTrayApp
                 Height = 30,
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = TextDim,
-                BackColor = Sidebar,
+                BackColor = SidebarColor,
                 Font = new Font("Segoe UI", 10F),
                 Cursor = Cursors.Hand,
                 TabStop = false
@@ -315,28 +356,38 @@ namespace AudioDeviceTrayApp
                 Top = 46,
                 Width = 150,
                 Height = ClientSize.Height - 46,
-                BackColor = Sidebar
+                BackColor = SidebarColor
             };
             Controls.Add(sidebar);
 
-            string[] items = { "🎧   Output", "🎤   Microphone", "⚙️   General" };
+            _navStripe = new Panel
+            {
+                Left = 0,
+                Top = 14,
+                Width = 3,
+                Height = 48,
+                BackColor = Accent
+            };
+            sidebar.Controls.Add(_navStripe);
+
+            string[] keys = { "nav_output", "nav_mic", "nav_general" };
             int top = 14;
-            for (int i = 0; i < items.Length; i++)
+            for (int i = 0; i < keys.Length; i++)
             {
                 int index = i;
                 var b = new Button
                 {
-                    Text = items[i],
+                    Text = T(keys[i]),
                     Left = 0,
                     Top = top,
                     Width = 150,
                     Height = 48,
                     FlatStyle = FlatStyle.Flat,
                     TextAlign = ContentAlignment.MiddleLeft,
-                    Padding = new Padding(18, 0, 0, 0),
+                    Padding = new Padding(20, 0, 0, 0),
                     Font = new Font("Segoe UI", 10F),
                     ForeColor = TextDim,
-                    BackColor = Sidebar,
+                    BackColor = SidebarColor,
                     Cursor = Cursors.Hand,
                     TabStop = false
                 };
@@ -347,6 +398,7 @@ namespace AudioDeviceTrayApp
                 _navButtons.Add(b);
                 top += 48;
             }
+            _navStripe.BringToFront();
         }
 
         private Panel _content = null!;
@@ -369,7 +421,7 @@ namespace AudioDeviceTrayApp
             for (int i = 0; i < _navButtons.Count; i++)
             {
                 bool selected = i == index;
-                _navButtons[i].BackColor = selected ? NavSelected : Sidebar;
+                _navButtons[i].BackColor = selected ? NavSelected : SidebarColor;
                 _navButtons[i].ForeColor = selected ? Accent : TextDim;
                 _navButtons[i].Font = new Font("Segoe UI", 10F,
                     selected ? FontStyle.Bold : FontStyle.Regular);
@@ -379,6 +431,12 @@ namespace AudioDeviceTrayApp
                     if (selected) _navPages[i].BringToFront();
                 }
             }
+
+            if (index >= 0 && index < _navButtons.Count)
+            {
+                _navStripe.Top = _navButtons[index].Top;
+                _navStripe.BringToFront();
+            }
         }
 
         // ===================== Pages =====================
@@ -386,38 +444,68 @@ namespace AudioDeviceTrayApp
         private void BuildPages()
         {
             // ---- Output ----
-            var outPage = NewPage("🎧  Output");
-            _headsetCombo = AddComboRow(outPage, "Headset:", 64);
-            _speakersCombo = AddComboRow(outPage, "Speakers:", 104);
-            AddSubHeading(outPage, "Hotkeys", 152);
-            AddHotkeyRow(outPage, "Headset:", 186,
+            var outPage = NewPage(T("head_output"));
+            _headsetCombo = AddComboRow(outPage, T("lbl_headset"), 64);
+            _speakersCombo = AddComboRow(outPage, T("lbl_speakers"), 104);
+            AddSubHeading(outPage, T("sub_hotkeys"), 152);
+            AddHotkeyRow(outPage, T("lbl_headset"), 186,
                 () => _settings.HeadsetHotkey, v => _settings.HeadsetHotkey = v);
-            AddHotkeyRow(outPage, "Speakers:", 224,
+            AddHotkeyRow(outPage, T("lbl_speakers"), 224,
                 () => _settings.SpeakersHotkey, v => _settings.SpeakersHotkey = v);
-            AddHotkeyRow(outPage, "Switch:", 262,
+            AddHotkeyRow(outPage, T("lbl_switch"), 262,
                 () => _settings.OutputToggleHotkey, v => _settings.OutputToggleHotkey = v,
-                "Toggle Headset / Speakers");
+                T("hint_toggle_output"));
 
             // ---- Microphone ----
-            var micPage = NewPage("🎤  Microphone");
-            _mic1Combo = AddComboRow(micPage, "Mic 1:", 64);
-            _mic2Combo = AddComboRow(micPage, "Mic 2:", 104);
-            AddSubHeading(micPage, "Hotkeys", 152);
-            AddHotkeyRow(micPage, "Mic 1:", 186,
+            var micPage = NewPage(T("head_mic"));
+            _mic1Combo = AddComboRow(micPage, T("lbl_mic1"), 64);
+            _mic2Combo = AddComboRow(micPage, T("lbl_mic2"), 104);
+            AddSubHeading(micPage, T("sub_hotkeys"), 152);
+            AddHotkeyRow(micPage, T("lbl_mic1"), 186,
                 () => _settings.Mic1Hotkey, v => _settings.Mic1Hotkey = v);
-            AddHotkeyRow(micPage, "Mic 2:", 224,
+            AddHotkeyRow(micPage, T("lbl_mic2"), 224,
                 () => _settings.Mic2Hotkey, v => _settings.Mic2Hotkey = v);
-            AddHotkeyRow(micPage, "Switch:", 262,
+            AddHotkeyRow(micPage, T("lbl_switch"), 262,
                 () => _settings.MicToggleHotkey, v => _settings.MicToggleHotkey = v,
-                "Toggle Mic 1 / Mic 2");
+                T("hint_toggle_mic"));
 
             // ---- General ----
-            var genPage = NewPage("⚙️  General");
-            _startWithWindowsCheckbox = new CheckBox
+            var genPage = NewPage(T("head_general"));
+
+            var langLabel = new Label
             {
-                Text = "🚀  Start with Windows",
+                Text = T("lbl_language"),
+                AutoSize = true,
                 Left = 24,
                 Top = 70,
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = LabelColor
+            };
+            genPage.Controls.Add(langLabel);
+
+            _languageCombo = new ComboBox
+            {
+                Left = 130,
+                Top = 66,
+                Width = 180,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Surface,
+                ForeColor = Color.WhiteSmoke,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9F)
+            };
+            StyleCombo(_languageCombo);
+            _languageCombo.Items.Add(T("lang_english"));
+            _languageCombo.Items.Add(T("lang_turkish"));
+            _languageCombo.SelectedIndex = Localization.Lang == "tr" ? 1 : 0;
+            _languageCombo.SelectedIndexChanged += LanguageCombo_Changed;
+            genPage.Controls.Add(_languageCombo);
+
+            _startWithWindowsCheckbox = new CheckBox
+            {
+                Text = T("chk_startup"),
+                Left = 24,
+                Top = 118,
                 Width = 280,
                 ForeColor = LabelColor,
                 Font = new Font("Segoe UI", 9.5F),
@@ -428,10 +516,10 @@ namespace AudioDeviceTrayApp
 
             var updateBtn = new Button
             {
-                Text = "🔄  Check for Updates",
+                Text = T("btn_check_updates"),
                 Left = 24,
-                Top = 118,
-                Width = 200,
+                Top = 162,
+                Width = 220,
                 Height = 36,
                 BackColor = Surface,
                 ForeColor = TextMain,
@@ -512,6 +600,33 @@ namespace AudioDeviceTrayApp
 
         // ===================== Row helpers =====================
 
+        private void StyleCombo(ComboBox combo)
+        {
+            combo.DrawMode = DrawMode.OwnerDrawFixed;
+            combo.ItemHeight = 24;
+            combo.DrawItem += Combo_DrawItem;
+        }
+
+        private void Combo_DrawItem(object? sender, DrawItemEventArgs e)
+        {
+            if (sender is not ComboBox combo) return;
+
+            bool selected = (e.State & DrawItemState.Selected) != 0;
+            using (var bg = new SolidBrush(selected ? Accent : Surface))
+            {
+                e.Graphics.FillRectangle(bg, e.Bounds);
+            }
+
+            if (e.Index >= 0)
+            {
+                string text = combo.GetItemText(combo.Items[e.Index]);
+                var rect = new Rectangle(e.Bounds.X + 8, e.Bounds.Y, e.Bounds.Width - 8, e.Bounds.Height);
+                TextRenderer.DrawText(e.Graphics, text, combo.Font, rect,
+                    selected ? Color.White : TextMain,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+        }
+
         private ComboBox AddComboRow(Panel page, string labelText, int top)
         {
             var label = new Label
@@ -535,6 +650,7 @@ namespace AudioDeviceTrayApp
                 Font = new Font("Segoe UI", 9F),
                 DisplayMember = "Name"
             };
+            StyleCombo(combo);
             page.Controls.Add(label);
             page.Controls.Add(combo);
             return combo;
@@ -542,8 +658,10 @@ namespace AudioDeviceTrayApp
 
         private void AddHotkeyRow(Panel page, string labelText, int top,
             Func<HotkeyConfig?> get, Action<HotkeyConfig?> set,
-            string hintText = "Click & press (Del clears)")
+            string? hintText = null)
         {
+            hintText ??= T("hint_click");
+
             var label = new Label
             {
                 Text = labelText,
@@ -683,7 +801,7 @@ namespace AudioDeviceTrayApp
                 ShowInTaskbar = false;
             }
 
-            // Silently check for updates in the background on every launch.
+            _ = ShowWhatsNewIfUpdatedAsync();
             _ = AutoUpdateOnStartupAsync();
         }
 
@@ -809,7 +927,7 @@ namespace AudioDeviceTrayApp
 
         // ===================== Buttons / menu =====================
 
-        private void SaveButton_Click(object? sender, EventArgs e)
+        private void SaveSelections()
         {
             if (_headsetCombo.SelectedItem is AudioDeviceView headset)
                 _settings.HeadsetDeviceId = headset.Id;
@@ -824,10 +942,32 @@ namespace AudioDeviceTrayApp
                 _settings.Mic2DeviceId = mic2.Id;
 
             SaveSettings();
+        }
+
+        private void SaveButton_Click(object? sender, EventArgs e)
+        {
+            SaveSelections();
             RegisterAllHotkeys();
 
             Hide();
             ShowInTaskbar = false;
+        }
+
+        private void LanguageCombo_Changed(object? sender, EventArgs e)
+        {
+            if (!_uiReady) return;
+
+            string chosen = _languageCombo.SelectedIndex == 1 ? "tr" : "en";
+            if (chosen == _settings.Language) return;
+
+            SaveSelections();
+            _settings.Language = chosen;
+            SaveSettings();
+
+            MessageBox.Show(T("lang_restart_msg"), T("lang_restart_title"),
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            Application.Restart();
         }
 
         private void OnSettings(object? sender, EventArgs e)
@@ -850,30 +990,25 @@ namespace AudioDeviceTrayApp
         {
             if (string.IsNullOrEmpty(deviceId))
             {
-                MessageBox.Show($"{label} device is not configured. Open Settings first.",
-                    "Not configured", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(T("msg_output_not_config", label),
+                    T("msg_not_configured_title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
             try
             {
-                if (!Guid.TryParse(deviceId, out var guid))
-                {
-                    MessageBox.Show("Invalid device id stored in settings.",
-                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
+                if (!Guid.TryParse(deviceId, out var guid)) return;
 
                 var device = _audioController.GetDevice(guid);
                 if (device == null)
                 {
-                    MessageBox.Show("Device not found. Maybe it is disconnected?",
-                        "Device not found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(T("msg_device_not_found"),
+                        T("msg_device_not_found_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
                 device.SetAsDefault();
-                ShowBalloon("Output Device", "Switched to: " + device.FullName);
+                ShowBalloon(T("balloon_output"), T("balloon_switched", device.FullName));
             }
             catch (Exception ex)
             {
@@ -889,44 +1024,39 @@ namespace AudioDeviceTrayApp
 
             if (string.IsNullOrEmpty(headset) || string.IsNullOrEmpty(speakers))
             {
-                MessageBox.Show("Configure both Headset and Speakers first.",
-                    "Not configured", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(T("msg_config_output_both"),
+                    T("msg_not_configured_title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
             var current = _audioController.DefaultPlaybackDevice?.Id.ToString();
             string target = current == headset ? speakers : headset;
-            SwitchOutput(target, "Output");
+            SwitchOutput(target, T("dev_output"));
         }
 
         private void SwitchMic(string? deviceId)
         {
             if (string.IsNullOrEmpty(deviceId))
             {
-                MessageBox.Show("Microphone is not configured. Open Settings first.",
-                    "Not configured", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(T("msg_mic_not_config"),
+                    T("msg_not_configured_title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
             try
             {
-                if (!Guid.TryParse(deviceId, out var guid))
-                {
-                    MessageBox.Show("Invalid microphone id stored in settings.",
-                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
+                if (!Guid.TryParse(deviceId, out var guid)) return;
 
                 var device = _audioController.GetDevice(guid);
                 if (device == null)
                 {
-                    MessageBox.Show("Microphone not found. Maybe it is disconnected?",
-                        "Device not found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(T("msg_mic_not_found"),
+                        T("msg_device_not_found_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
                 device.SetAsDefault();
-                ShowBalloon("Microphone", "Default mic: " + device.FullName);
+                ShowBalloon(T("balloon_mic"), T("balloon_mic_default", device.FullName));
             }
             catch (Exception ex)
             {
@@ -942,8 +1072,8 @@ namespace AudioDeviceTrayApp
 
             if (string.IsNullOrEmpty(mic1) || string.IsNullOrEmpty(mic2))
             {
-                MessageBox.Show("Configure both Mic 1 and Mic 2 first.",
-                    "Not configured", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(T("msg_config_mic_both"),
+                    T("msg_not_configured_title"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -961,10 +1091,8 @@ namespace AudioDeviceTrayApp
 
         // ===================== Auto-update (Velopack) =====================
 
-        private const string UpdateRepoUrl = "https://github.com/GokhanGuclu/SoundDeck";
-
         private static UpdateManager CreateUpdateManager()
-            => new UpdateManager(new GithubSource(UpdateRepoUrl, null, false));
+            => new UpdateManager(new GithubSource(RepoUrl, null, false));
 
         private async Task AutoUpdateOnStartupAsync()
         {
@@ -978,10 +1106,8 @@ namespace AudioDeviceTrayApp
 
                 await mgr.DownloadUpdatesAsync(info);
 
-                // Apply the next time the app exits — settings live in %AppData% and are kept.
                 mgr.WaitExitThenApplyUpdates(info.TargetFullRelease, silent: false, restart: false);
-                ShowBalloon("SoundDeck",
-                    $"Update {info.TargetFullRelease.Version} downloaded — it will be installed the next time you start SoundDeck.");
+                ShowBalloon("SoundDeck", T("update_downloaded", info.TargetFullRelease.Version));
             }
             catch
             {
@@ -996,8 +1122,7 @@ namespace AudioDeviceTrayApp
                 var mgr = CreateUpdateManager();
                 if (!mgr.IsInstalled)
                 {
-                    MessageBox.Show(
-                        "Auto-update is only available in the installed version of SoundDeck (not when run from source).",
+                    MessageBox.Show(T("update_only_installed"),
                         "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
@@ -1005,18 +1130,17 @@ namespace AudioDeviceTrayApp
                 var info = await mgr.CheckForUpdatesAsync();
                 if (info == null)
                 {
-                    MessageBox.Show("You're on the latest version. 🎉",
+                    MessageBox.Show(T("update_latest"),
                         "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
 
                 var answer = MessageBox.Show(
-                    $"A new version ({info.TargetFullRelease.Version}) is available.\n\n" +
-                    "Download and update now? SoundDeck will restart and keep all your settings.",
-                    "Update available", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    T("update_available_msg", info.TargetFullRelease.Version),
+                    T("update_available_title"), MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (answer != DialogResult.Yes) return;
 
-                ShowBalloon("SoundDeck", "Downloading update...");
+                ShowBalloon("SoundDeck", T("update_downloading"));
                 await mgr.DownloadUpdatesAsync(info);
                 mgr.ApplyUpdatesAndRestart(info);
             }
@@ -1025,6 +1149,63 @@ namespace AudioDeviceTrayApp
                 MessageBox.Show("Update check failed: " + ex.Message,
                     "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
+        }
+
+        // ===================== What's New (after update) =====================
+
+        private static string CurrentVersionString()
+        {
+            var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            return $"{v?.Major}.{v?.Minor}.{v?.Build}";
+        }
+
+        private async Task ShowWhatsNewIfUpdatedAsync()
+        {
+            try
+            {
+                string current = CurrentVersionString();
+                string? last = _settings.LastRunVersion;
+
+                if (string.Equals(last, current)) return;
+
+                _settings.LastRunVersion = current;
+                SaveSettings();
+
+                // Don't show anything on a brand-new install (no previous version recorded).
+                if (string.IsNullOrEmpty(last)) return;
+
+                var notes = await FetchReleaseNotesAsync(current);
+                if (!string.IsNullOrWhiteSpace(notes))
+                {
+                    using var dlg = new WhatsNewForm(current, notes!, _appIcon);
+                    dlg.ShowDialog();
+                }
+            }
+            catch
+            {
+                // Showing release notes is best-effort only.
+            }
+        }
+
+        private static async Task<string?> FetchReleaseNotesAsync(string version)
+        {
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("SoundDeck");
+                var url = $"https://api.github.com/repos/GokhanGuclu/SoundDeck/releases/tags/v{version}";
+                var json = await http.GetStringAsync(url);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("body", out var body))
+                {
+                    return body.GetString();
+                }
+            }
+            catch
+            {
+                // offline / not found — skip
+            }
+            return null;
         }
 
         // ===================== Hotkey registration =====================
@@ -1104,6 +1285,8 @@ namespace AudioDeviceTrayApp
 
         // General
         public bool StartWithWindows { get; set; }
+        public string? Language { get; set; }
+        public string? LastRunVersion { get; set; }
     }
 
     public class AudioDeviceView
