@@ -32,6 +32,8 @@
 - 🎧 **Quick Device Switching** — Jump to your headset or speakers instantly
 - 🔁 **Output Toggle** — One hotkey to flip between your chosen headset and speakers
 - 🎤 **Dual Microphone Switching** — Pick two mics and toggle between them with a single key
+- 🔀 **Left/Right Channel Swap** — Mirror your headset's stereo image (front/back balance kept) via [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)
+- 🌍 **English & Türkçe** — Switch language under General
 - ⌨️ **Global Hotkeys** — Custom keyboard shortcuts that work system-wide
 - 🔔 **Notifications** — Visual feedback every time something changes
 - 💾 **Auto-Save** — Your preferences are stored automatically
@@ -98,6 +100,22 @@ Settings are stored in: `%AppData%\SoundDeck\settings.json`
 | 🔁 Output toggle | Flip between headset and speakers |
 | 🎤 Switch to Mic 1 / Mic 2 | Set the chosen microphone as default |
 | 🔁 Microphone toggle | Flip between Mic 1 and Mic 2 |
+| 🔀 Channel swap toggle | Swap left/right on your headset (needs Equalizer APO) |
+
+### 🔀 Left/Right Channel Swap
+
+Under **Effects** you can swap your headset's left and right channels — useful when your
+headphones are on backwards, or to mirror the stereo image in games while keeping front/back
+balance intact.
+
+This uses the free [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) engine. One-time setup:
+
+1. Install Equalizer APO (the Effects page has a download button).
+2. Open device setup (button on the Effects page), tick your headset, and reboot once.
+3. After that the swap toggles instantly from the app, tray menu or your hotkey — no restart needed.
+
+SoundDeck writes its own `sounddeck-swap.txt` into the Equalizer APO config folder and includes it
+from `config.txt`, so your other Equalizer APO settings are left untouched.
 
 ### Switching from the tray
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
@@ -36,6 +37,9 @@ namespace AudioDeviceTrayApp
         private ComboBox _languageCombo;
         private readonly Button _saveButton;
 
+        // ---- Effects ----
+        private CheckBox _swapCheckbox;
+
         // ---- Navigation ----
         private readonly List<Button> _navButtons = new();
         private readonly List<Panel> _navPages = new();
@@ -54,6 +58,7 @@ namespace AudioDeviceTrayApp
         private const int HK_MIC1 = 4;
         private const int HK_MIC2 = 5;
         private const int HK_MIC_TOGGLE = 6;
+        private const int HK_SWAP = 7;
 
         private const int WM_HOTKEY = 0x0312;
         private const uint MOD_ALT = 0x0001;
@@ -178,6 +183,7 @@ namespace AudioDeviceTrayApp
             _mic2Combo = null!;
             _startWithWindowsCheckbox = null!;
             _languageCombo = null!;
+            _swapCheckbox = null!;
             BuildPages();
 
             // ---------- Tray ----------
@@ -196,6 +202,8 @@ namespace AudioDeviceTrayApp
                 new ToolStripMenuItem(T("tray_mic1"), null, (s, e) => SwitchMic(_settings.Mic1DeviceId)),
                 new ToolStripMenuItem(T("tray_mic2"), null, (s, e) => SwitchMic(_settings.Mic2DeviceId)),
                 new ToolStripMenuItem(T("tray_mic_toggle"), null, (s, e) => ToggleMic()),
+                new ToolStripSeparator(),
+                new ToolStripMenuItem(T("tray_swap"), null, (s, e) => ToggleSwapFromMenu()),
                 new ToolStripSeparator(),
                 new ToolStripMenuItem(T("tray_updates"), null, async (s, e) => await CheckForUpdatesInteractiveAsync()),
                 new ToolStripMenuItem(T("tray_settings"), null, OnSettings),
@@ -221,6 +229,7 @@ namespace AudioDeviceTrayApp
                 new() { Id = HK_MIC1,          Get = () => _settings.Mic1Hotkey,         Action = () => SwitchMic(_settings.Mic1DeviceId) },
                 new() { Id = HK_MIC2,          Get = () => _settings.Mic2Hotkey,         Action = () => SwitchMic(_settings.Mic2DeviceId) },
                 new() { Id = HK_MIC_TOGGLE,    Get = () => _settings.MicToggleHotkey,    Action = ToggleMic },
+                new() { Id = HK_SWAP,          Get = () => _settings.SwapChannelsHotkey, Action = ToggleSwapFromMenu },
             };
 
             FormClosing += Form1_FormClosing;
@@ -230,6 +239,12 @@ namespace AudioDeviceTrayApp
             ShowPage(0);
             ApplyRoundedRegion();
             _uiReady = true;
+
+            // Keep the Equalizer APO config in sync with the saved swap setting.
+            if (IsEqualizerApoInstalled())
+            {
+                ApplySwapConfig(_settings.SwapChannels);
+            }
 
             if (IsHandleCreated)
             {
@@ -370,7 +385,7 @@ namespace AudioDeviceTrayApp
             };
             sidebar.Controls.Add(_navStripe);
 
-            string[] keys = { "nav_output", "nav_mic", "nav_general" };
+            string[] keys = { "nav_output", "nav_mic", "nav_effects", "nav_general" };
             int top = 14;
             for (int i = 0; i < keys.Length; i++)
             {
@@ -468,6 +483,69 @@ namespace AudioDeviceTrayApp
             AddHotkeyRow(micPage, T("lbl_switch"), 262,
                 () => _settings.MicToggleHotkey, v => _settings.MicToggleHotkey = v,
                 T("hint_toggle_mic"));
+
+            // ---- Effects (left/right channel swap) ----
+            var fxPage = NewPage(T("head_effects"));
+            _swapCheckbox = new CheckBox
+            {
+                Text = T("chk_swap"),
+                Left = 24,
+                Top = 66,
+                Width = 320,
+                ForeColor = LabelColor,
+                Font = new Font("Segoe UI", 9.5F),
+                Checked = _settings.SwapChannels
+            };
+            _swapCheckbox.CheckedChanged += SwapCheckbox_Changed;
+            fxPage.Controls.Add(_swapCheckbox);
+
+            AddSubHeading(fxPage, T("sub_hotkeys"), 104);
+            AddHotkeyRow(fxPage, T("lbl_swap"), 138,
+                () => _settings.SwapChannelsHotkey, v => _settings.SwapChannelsHotkey = v,
+                T("hint_swap"));
+
+            bool apo = IsEqualizerApoInstalled();
+            var statusLabel = new Label
+            {
+                Text = apo ? T("swap_status_ok") : T("swap_status_missing"),
+                AutoSize = true,
+                Left = 24,
+                Top = 188,
+                ForeColor = apo ? Color.FromArgb(74, 222, 128) : Color.FromArgb(248, 113, 113),
+                Font = new Font("Segoe UI", 9F, FontStyle.Bold)
+            };
+            fxPage.Controls.Add(statusLabel);
+
+            var setupBtn = new Button
+            {
+                Text = apo ? T("swap_open_setup") : T("swap_get_apo"),
+                Left = 24,
+                Top = 214,
+                Width = 220,
+                Height = 34,
+                BackColor = Surface,
+                ForeColor = TextMain,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9.5F),
+                Cursor = Cursors.Hand,
+                TabStop = false
+            };
+            setupBtn.FlatAppearance.BorderColor = Accent;
+            setupBtn.FlatAppearance.BorderSize = 1;
+            setupBtn.Click += (s, e) => OpenEqualizerApoSetup();
+            fxPage.Controls.Add(setupBtn);
+
+            var helpLabel = new Label
+            {
+                Text = T("swap_help"),
+                Left = 24,
+                Top = 258,
+                Width = fxPage.Width - 48,
+                Height = 90,
+                ForeColor = TextHint,
+                Font = new Font("Segoe UI", 8.5F)
+            };
+            fxPage.Controls.Add(helpLabel);
 
             // ---- General ----
             var genPage = NewPage(T("head_general"));
@@ -1089,6 +1167,120 @@ namespace AudioDeviceTrayApp
             _trayIcon.ShowBalloonTip(1000);
         }
 
+        // ===================== Channel swap (Equalizer APO) =====================
+
+        private const string SwapIncludeFile = "sounddeck-swap.txt";
+
+        private static string? GetEqualizerApoConfigDir()
+        {
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\EqualizerAPO");
+                if (key?.GetValue("ConfigPath") is string cfg && Directory.Exists(cfg))
+                {
+                    return cfg;
+                }
+            }
+            catch
+            {
+                // ignore and fall back to the default location
+            }
+
+            const string def = @"C:\Program Files\EqualizerAPO\config";
+            return Directory.Exists(def) ? def : null;
+        }
+
+        private static bool IsEqualizerApoInstalled() => GetEqualizerApoConfigDir() != null;
+
+        private void ApplySwapConfig(bool on)
+        {
+            try
+            {
+                var dir = GetEqualizerApoConfigDir();
+                if (dir == null) return;
+
+                var swapPath = Path.Combine(dir, SwapIncludeFile);
+                string content = on
+                    ? "# Managed by SoundDeck - left/right channel swap\r\n" +
+                      "Copy: sd_tmpL=L sd_tmpR=R\r\n" +
+                      "Copy: L=sd_tmpR R=sd_tmpL\r\n"
+                    : "# Managed by SoundDeck - swap disabled\r\n";
+                File.WriteAllText(swapPath, content);
+
+                // Make sure the main config includes our file (once).
+                var configPath = Path.Combine(dir, "config.txt");
+                string existing = File.Exists(configPath) ? File.ReadAllText(configPath) : "";
+                if (!existing.Contains(SwapIncludeFile))
+                {
+                    string updated = existing.TrimEnd() + Environment.NewLine +
+                                     "Include: " + SwapIncludeFile + Environment.NewLine;
+                    File.WriteAllText(configPath, updated.TrimStart());
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to update channel swap: " + ex.Message,
+                    "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void SwapCheckbox_Changed(object? sender, EventArgs e)
+        {
+            if (!_uiReady) return;
+
+            if (!IsEqualizerApoInstalled())
+            {
+                MessageBox.Show(T("swap_need_apo"), "SoundDeck",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                _swapCheckbox.Checked = false;
+                return;
+            }
+
+            _settings.SwapChannels = _swapCheckbox.Checked;
+            SaveSettings();
+            ApplySwapConfig(_settings.SwapChannels);
+            ShowBalloon(T("swap_title"), _settings.SwapChannels ? T("swap_on") : T("swap_off"));
+        }
+
+        private void ToggleSwapFromMenu()
+        {
+            if (!IsEqualizerApoInstalled())
+            {
+                MessageBox.Show(T("swap_need_apo"), "SoundDeck",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Flipping the checkbox triggers SwapCheckbox_Changed, which does the work.
+            _swapCheckbox.Checked = !_swapCheckbox.Checked;
+        }
+
+        private void OpenEqualizerApoSetup()
+        {
+            try
+            {
+                var dir = GetEqualizerApoConfigDir();
+                if (dir == null)
+                {
+                    Process.Start(new ProcessStartInfo(
+                        "https://sourceforge.net/projects/equalizerapo/files/latest/download")
+                    { UseShellExecute = true });
+                    return;
+                }
+
+                var configurator = Path.Combine(Path.GetDirectoryName(dir)!, "Configurator.exe");
+                if (File.Exists(configurator))
+                {
+                    Process.Start(new ProcessStartInfo(configurator) { UseShellExecute = true });
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not open Equalizer APO setup: " + ex.Message,
+                    "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
         // ===================== Auto-update (Velopack) =====================
 
         private static UpdateManager CreateUpdateManager()
@@ -1282,6 +1474,10 @@ namespace AudioDeviceTrayApp
         public HotkeyConfig? Mic1Hotkey { get; set; }
         public HotkeyConfig? Mic2Hotkey { get; set; }
         public HotkeyConfig? MicToggleHotkey { get; set; }
+
+        // Effects
+        public bool SwapChannels { get; set; }
+        public HotkeyConfig? SwapChannelsHotkey { get; set; }
 
         // General
         public bool StartWithWindows { get; set; }

@@ -12,9 +12,9 @@
     <Company>Gökhan Güçlü</Company>
     <Authors>Gökhan Güçlü</Authors>
     <Copyright>Copyright © 2025 Gökhan Güçlü</Copyright>
-    <Version>1.0.3</Version>
-    <AssemblyVersion>1.0.3.0</AssemblyVersion>
-    <FileVersion>1.0.3.0</FileVersion>
+    <Version>1.0.4</Version>
+    <AssemblyVersion>1.0.4.0</AssemblyVersion>
+    <FileVersion>1.0.4.0</FileVersion>
     <Description>Your audio control center — switch devices, manage your microphone and control volume with global hotkeys</Description>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>

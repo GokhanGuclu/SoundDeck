@@ -90,6 +90,23 @@ namespace AudioDeviceTrayApp
                 ["lang_restart_msg"] = "SoundDeck will restart to apply the new language.",
                 ["lang_english"] = "English",
                 ["lang_turkish"] = "Türkçe",
+
+                // Effects / channel swap
+                ["nav_effects"] = "🎚️   Effects",
+                ["head_effects"] = "🎚️  Effects",
+                ["chk_swap"] = "🔀  Swap left / right channels",
+                ["lbl_swap"] = "Swap:",
+                ["hint_swap"] = "Toggle channel swap",
+                ["swap_status_ok"] = "✔  Equalizer APO detected",
+                ["swap_status_missing"] = "✖  Equalizer APO is not installed",
+                ["swap_get_apo"] = "⬇  Download Equalizer APO",
+                ["swap_open_setup"] = "🛠  Open device setup",
+                ["swap_help"] = "One-time setup: install Equalizer APO, open device setup, tick your headset and reboot once. After that the swap toggles instantly — no restart needed. Mirrors left/right while keeping front/back balance.",
+                ["swap_need_apo"] = "Equalizer APO is required for channel swap. Install it first, then enable it on your headset.",
+                ["swap_title"] = "Channel Swap",
+                ["swap_on"] = "Left / right swapped 🔀",
+                ["swap_off"] = "Channels back to normal",
+                ["tray_swap"] = "🔀  Toggle L/R Swap",
             },
             ["tr"] = new()
             {
@@ -169,6 +186,23 @@ namespace AudioDeviceTrayApp
                 ["lang_restart_msg"] = "Yeni dili uygulamak için SoundDeck yeniden başlatılacak.",
                 ["lang_english"] = "English",
                 ["lang_turkish"] = "Türkçe",
+
+                // Effects / channel swap
+                ["nav_effects"] = "🎚️   Efektler",
+                ["head_effects"] = "🎚️  Efektler",
+                ["chk_swap"] = "🔀  Sol / sağ kanalı çevir",
+                ["lbl_swap"] = "Çevir:",
+                ["hint_swap"] = "Kanal çevirmeyi aç/kapa",
+                ["swap_status_ok"] = "✔  Equalizer APO bulundu",
+                ["swap_status_missing"] = "✖  Equalizer APO kurulu değil",
+                ["swap_get_apo"] = "⬇  Equalizer APO indir",
+                ["swap_open_setup"] = "🛠  Aygıt kurulumunu aç",
+                ["swap_help"] = "Tek seferlik kurulum: Equalizer APO'yu kur, aygıt kurulumunu aç, kulaklığını işaretle ve bir kez yeniden başlat. Sonrasında çevirme anında çalışır — yeniden başlatma gerekmez. Sol/sağ aynalanır, ön/arka dengesi korunur.",
+                ["swap_need_apo"] = "Kanal çevirme için Equalizer APO gerekli. Önce kur, sonra kulaklığında etkinleştir.",
+                ["swap_title"] = "Kanal Çevirme",
+                ["swap_on"] = "Sol / sağ çevrildi 🔀",
+                ["swap_off"] = "Kanallar normale döndü",
+                ["tray_swap"] = "🔀  Sol/Sağ Çevirmeyi Aç/Kapa",
             },
         };
 
