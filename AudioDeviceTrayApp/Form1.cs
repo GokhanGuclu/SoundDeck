@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -12,8 +12,10 @@ using System.Windows.Forms;
 using AudioSwitcher.AudioApi;
 using AudioSwitcher.AudioApi.CoreAudio;
 using Microsoft.Win32;
+#if !STORE
 using Velopack;
 using Velopack.Sources;
+#endif
 using static AudioDeviceTrayApp.Localization;
 
 namespace AudioDeviceTrayApp
@@ -68,9 +70,9 @@ namespace AudioDeviceTrayApp
         private const int WM_NCLBUTTONDOWN = 0xA1;
         private const int HTCAPTION = 0x2;
 
-        private const string REGISTRY_KEY = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
-        private const string APP_NAME = "SoundDeck";
+#if !STORE
         private const string RepoUrl = "https://github.com/GokhanGuclu/SoundDeck";
+#endif
 
         private sealed class HotkeyBinding
         {
@@ -142,7 +144,7 @@ namespace AudioDeviceTrayApp
                 .Any(a => string.Equals(a, "--settings", StringComparison.OrdinalIgnoreCase));
 
             // ---------- Window ----------
-            Text = "SoundDeck";
+            Text = AppInfo.DisplayName;
             FormBorderStyle = FormBorderStyle.None;
             ClientSize = new Size(660, 480);
             MaximizeBox = false;
@@ -205,7 +207,9 @@ namespace AudioDeviceTrayApp
                 new ToolStripSeparator(),
                 new ToolStripMenuItem(T("tray_swap"), null, (s, e) => ToggleSwapFromMenu()),
                 new ToolStripSeparator(),
+#if !STORE
                 new ToolStripMenuItem(T("tray_updates"), null, async (s, e) => await CheckForUpdatesInteractiveAsync()),
+#endif
                 new ToolStripMenuItem(T("tray_settings"), null, OnSettings),
                 new ToolStripSeparator(),
                 new ToolStripMenuItem(T("tray_exit"), null, OnExit)
@@ -216,7 +220,7 @@ namespace AudioDeviceTrayApp
                 Icon = _appIcon ?? SystemIcons.Application,
                 ContextMenuStrip = _trayMenu,
                 Visible = true,
-                Text = "SoundDeck"
+                Text = AppInfo.DisplayName
             };
             _trayIcon.DoubleClick += OnSettings;
 
@@ -312,7 +316,7 @@ namespace AudioDeviceTrayApp
 
             var titleLbl = new Label
             {
-                Text = "SoundDeck",
+                Text = AppInfo.DisplayName,
                 Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold),
                 ForeColor = Accent,
                 AutoSize = true,
@@ -592,6 +596,8 @@ namespace AudioDeviceTrayApp
             _startWithWindowsCheckbox.CheckedChanged += StartWithWindowsCheckbox_CheckedChanged;
             genPage.Controls.Add(_startWithWindowsCheckbox);
 
+#if !STORE
+            // Store builds are updated by the Store, so there is nothing to check here.
             var updateBtn = new Button
             {
                 Text = T("btn_check_updates"),
@@ -610,11 +616,12 @@ namespace AudioDeviceTrayApp
             updateBtn.FlatAppearance.BorderSize = 1;
             updateBtn.Click += async (s, e) => await CheckForUpdatesInteractiveAsync();
             genPage.Controls.Add(updateBtn);
+#endif
 
             var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
             var versionLabel = new Label
             {
-                Text = $"SoundDeck v{version?.Major}.{version?.Minor}.{version?.Build}",
+                Text = $"{AppInfo.DisplayName} v{version?.Major}.{version?.Minor}.{version?.Build}",
                 AutoSize = true,
                 Left = 24,
                 Top = 300,
@@ -879,9 +886,38 @@ namespace AudioDeviceTrayApp
                 ShowInTaskbar = false;
             }
 
+#if STORE
+            // The Store shows its own "What's new" and handles updates itself; the only
+            // thing to do here is re-sync the checkbox with the real startup task state,
+            // which the user can flip in Task Manager without telling us.
+            _ = SyncStartupCheckboxAsync();
+#else
             _ = ShowWhatsNewIfUpdatedAsync();
             _ = AutoUpdateOnStartupAsync();
+#endif
         }
+
+#if STORE
+        private async Task SyncStartupCheckboxAsync()
+        {
+            try
+            {
+                bool enabled = await StartupManager.IsEnabledAsync();
+                if (enabled == _startWithWindowsCheckbox.Checked) return;
+
+                _startWithWindowsCheckbox.CheckedChanged -= StartWithWindowsCheckbox_CheckedChanged;
+                _startWithWindowsCheckbox.Checked = enabled;
+                _startWithWindowsCheckbox.CheckedChanged += StartWithWindowsCheckbox_CheckedChanged;
+
+                _settings.StartWithWindows = enabled;
+                SaveSettings();
+            }
+            catch
+            {
+                // Best-effort only — never block startup over a checkbox.
+            }
+        }
+#endif
 
         private void Form1_FormClosing(object? sender, FormClosingEventArgs e)
         {
@@ -1190,6 +1226,9 @@ namespace AudioDeviceTrayApp
             return Directory.Exists(def) ? def : null;
         }
 
+        // Note: the packaged (Store) build writes to the Equalizer APO config folder just
+        // like the classic one. MSIX does not redirect these writes — verified by running
+        // a write inside the package container with Invoke-CommandInDesktopPackage.
         private static bool IsEqualizerApoInstalled() => GetEqualizerApoConfigDir() != null;
 
         private void ApplySwapConfig(bool on)
@@ -1220,7 +1259,7 @@ namespace AudioDeviceTrayApp
             catch (Exception ex)
             {
                 MessageBox.Show("Failed to update channel swap: " + ex.Message,
-                    "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -1230,7 +1269,7 @@ namespace AudioDeviceTrayApp
 
             if (!IsEqualizerApoInstalled())
             {
-                MessageBox.Show(T("swap_need_apo"), "SoundDeck",
+                MessageBox.Show(T("swap_need_apo"), AppInfo.DisplayName,
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 _swapCheckbox.Checked = false;
                 return;
@@ -1246,7 +1285,7 @@ namespace AudioDeviceTrayApp
         {
             if (!IsEqualizerApoInstalled())
             {
-                MessageBox.Show(T("swap_need_apo"), "SoundDeck",
+                MessageBox.Show(T("swap_need_apo"), AppInfo.DisplayName,
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -1277,11 +1316,14 @@ namespace AudioDeviceTrayApp
             catch (Exception ex)
             {
                 MessageBox.Show("Could not open Equalizer APO setup: " + ex.Message,
-                    "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
         // ===================== Auto-update (Velopack) =====================
+        // Not compiled into the Store build: MSIX packages are updated by the Store and
+        // Store policy forbids an app shipping its own update mechanism.
+#if !STORE
 
         private static UpdateManager CreateUpdateManager()
             => new UpdateManager(new GithubSource(RepoUrl, null, false));
@@ -1299,7 +1341,7 @@ namespace AudioDeviceTrayApp
                 await mgr.DownloadUpdatesAsync(info);
 
                 mgr.WaitExitThenApplyUpdates(info.TargetFullRelease, silent: false, restart: false);
-                ShowBalloon("SoundDeck", T("update_downloaded", info.TargetFullRelease.Version));
+                ShowBalloon(AppInfo.DisplayName, T("update_downloaded", info.TargetFullRelease.Version));
             }
             catch
             {
@@ -1315,7 +1357,7 @@ namespace AudioDeviceTrayApp
                 if (!mgr.IsInstalled)
                 {
                     MessageBox.Show(T("update_only_installed"),
-                        "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
 
@@ -1323,7 +1365,7 @@ namespace AudioDeviceTrayApp
                 if (info == null)
                 {
                     MessageBox.Show(T("update_latest"),
-                        "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
 
@@ -1332,14 +1374,14 @@ namespace AudioDeviceTrayApp
                     T("update_available_title"), MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (answer != DialogResult.Yes) return;
 
-                ShowBalloon("SoundDeck", T("update_downloading"));
+                ShowBalloon(AppInfo.DisplayName, T("update_downloading"));
                 await mgr.DownloadUpdatesAsync(info);
                 mgr.ApplyUpdatesAndRestart(info);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Update check failed: " + ex.Message,
-                    "SoundDeck", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
@@ -1399,6 +1441,7 @@ namespace AudioDeviceTrayApp
             }
             return null;
         }
+#endif
 
         // ===================== Hotkey registration =====================
 
@@ -1426,30 +1469,28 @@ namespace AudioDeviceTrayApp
             RegisterHotKey(Handle, id, modifiers, (uint)config.Key);
         }
 
-        // ===================== Startup registry =====================
+        // ===================== Start with Windows =====================
 
-        private void StartWithWindowsCheckbox_CheckedChanged(object? sender, EventArgs e)
+        private async void StartWithWindowsCheckbox_CheckedChanged(object? sender, EventArgs e)
         {
-            _settings.StartWithWindows = _startWithWindowsCheckbox.Checked;
+            bool enable = _startWithWindowsCheckbox.Checked;
+            _settings.StartWithWindows = enable;
             SaveSettings();
-            SetStartupRegistry(_startWithWindowsCheckbox.Checked);
-        }
 
-        private void SetStartupRegistry(bool enable)
-        {
             try
             {
-                using var key = Registry.CurrentUser.OpenSubKey(REGISTRY_KEY, true);
-                if (key == null) return;
+                // Run key in the classic build, startup task in the Store build.
+                string? blocked = await StartupManager.SetEnabledAsync(enable);
+                if (blocked == null) return;
 
-                if (enable)
-                {
-                    key.SetValue(APP_NAME, Application.ExecutablePath);
-                }
-                else
-                {
-                    key.DeleteValue(APP_NAME, false);
-                }
+                MessageBox.Show(blocked, AppInfo.DisplayName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                // Windows refused — don't leave the checkbox claiming otherwise.
+                _startWithWindowsCheckbox.CheckedChanged -= StartWithWindowsCheckbox_CheckedChanged;
+                _startWithWindowsCheckbox.Checked = false;
+                _startWithWindowsCheckbox.CheckedChanged += StartWithWindowsCheckbox_CheckedChanged;
+                _settings.StartWithWindows = false;
+                SaveSettings();
             }
             catch (Exception ex)
             {

@@ -215,6 +215,16 @@ vpk upload github --repoUrl https://github.com/GokhanGuclu/SoundDeck --publish `
     --releaseName "v1.0.1" --tag "v1.0.1" --token <YOUR_GITHUB_TOKEN>
 ```
 
+### Microsoft Store (MSIX)
+
+The Store build is a separate configuration (`-p:StoreBuild=true`) that drops the Velopack
+updater and uses the packaged-app startup task. Packaging and submission are documented in
+[docs/MICROSOFT-STORE.md](docs/MICROSOFT-STORE.md):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build-msix.ps1 -Version 1.0.4
+```
+
 ### Project structure
 ```
 SoundDeck/
