@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy this file to identity.json and paste the values from Partner Center > your product > Product identity. IdentityName is 'Package/Identity/Name', Publisher is 'Package/Identity/Publisher' (the CN=... string), PublisherDisplayName is 'Package/Properties/PublisherDisplayName'. They must match exactly or the upload is rejected.",
+  "IdentityName": "12345GokhanGuclu.SoundPilot",
+  "Publisher": "CN=00000000-0000-0000-0000-000000000000",
+  "PublisherDisplayName": "Gökhan Güçlü"
+}

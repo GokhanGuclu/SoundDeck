@@ -417,3 +417,11 @@ publish_temp/
 
 # Claude Code local settings
 .claude/
+
+# MSIX / Microsoft Store packaging output (scripts and manifest are tracked)
+packaging/staging/
+packaging/out/
+packaging/tools/
+packaging/identity.json
+*.pfx
+*.cer

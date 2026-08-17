@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace AudioDeviceTrayApp
 {
@@ -38,6 +38,8 @@ namespace AudioDeviceTrayApp
 
                 // General page
                 ["chk_startup"] = "🚀  Start with Windows",
+                ["startup_blocked_user"] = "Windows is blocking %APP% from starting automatically. Enable it under Task Manager > Startup apps (or Settings > Apps > Startup).",
+                ["startup_blocked_policy"] = "Starting automatically has been disabled by a system policy on this device.",
                 ["btn_check_updates"] = "🔄  Check for Updates",
                 ["btn_save"] = "💾  Save & Close",
 
@@ -75,10 +77,10 @@ namespace AudioDeviceTrayApp
 
                 // Updates
                 ["update_available_title"] = "Update available",
-                ["update_available_msg"] = "A new version ({0}) is available.\n\nDownload and update now? SoundDeck will restart and keep all your settings.",
+                ["update_available_msg"] = "A new version ({0}) is available.\n\nDownload and update now? %APP% will restart and keep all your settings.",
                 ["update_latest"] = "You're on the latest version. 🎉",
-                ["update_only_installed"] = "Auto-update is only available in the installed version of SoundDeck (not when run from source).",
-                ["update_downloaded"] = "Update {0} downloaded — it will be installed the next time you start SoundDeck.",
+                ["update_only_installed"] = "Auto-update is only available in the installed version of %APP% (not when run from source).",
+                ["update_downloaded"] = "Update {0} downloaded — it will be installed the next time you start %APP%.",
                 ["update_downloading"] = "Downloading update...",
 
                 // What's new
@@ -87,7 +89,7 @@ namespace AudioDeviceTrayApp
 
                 // Language switch
                 ["lang_restart_title"] = "Language",
-                ["lang_restart_msg"] = "SoundDeck will restart to apply the new language.",
+                ["lang_restart_msg"] = "%APP% will restart to apply the new language.",
                 ["lang_english"] = "English",
                 ["lang_turkish"] = "Türkçe",
 
@@ -134,6 +136,8 @@ namespace AudioDeviceTrayApp
 
                 // General page
                 ["chk_startup"] = "🚀  Windows ile başlat",
+                ["startup_blocked_user"] = "Windows, %APP%'in otomatik başlamasını engelliyor. Görev Yöneticisi > Başlangıç uygulamaları (veya Ayarlar > Uygulamalar > Başlangıç) altından etkinleştirin.",
+                ["startup_blocked_policy"] = "Otomatik başlatma bu cihazdaki bir sistem ilkesiyle devre dışı bırakılmış.",
                 ["btn_check_updates"] = "🔄  Güncellemeleri Denetle",
                 ["btn_save"] = "💾  Kaydet & Kapat",
 
@@ -171,10 +175,10 @@ namespace AudioDeviceTrayApp
 
                 // Updates
                 ["update_available_title"] = "Güncelleme mevcut",
-                ["update_available_msg"] = "Yeni bir sürüm ({0}) mevcut.\n\nŞimdi indirilip güncellensin mi? SoundDeck yeniden başlar ve tüm ayarların korunur.",
+                ["update_available_msg"] = "Yeni bir sürüm ({0}) mevcut.\n\nŞimdi indirilip güncellensin mi? %APP% yeniden başlar ve tüm ayarların korunur.",
                 ["update_latest"] = "En güncel sürümü kullanıyorsun. 🎉",
-                ["update_only_installed"] = "Otomatik güncelleme yalnızca kurulu SoundDeck sürümünde çalışır (kaynaktan çalıştırınca değil).",
-                ["update_downloaded"] = "{0} güncellemesi indirildi — SoundDeck'i bir sonraki açışında kurulacak.",
+                ["update_only_installed"] = "Otomatik güncelleme yalnızca kurulu %APP% sürümünde çalışır (kaynaktan çalıştırınca değil).",
+                ["update_downloaded"] = "{0} güncellemesi indirildi — %APP%'i bir sonraki açışında kurulacak.",
                 ["update_downloading"] = "Güncelleme indiriliyor...",
 
                 // What's new
@@ -183,7 +187,7 @@ namespace AudioDeviceTrayApp
 
                 // Language switch
                 ["lang_restart_title"] = "Dil",
-                ["lang_restart_msg"] = "Yeni dili uygulamak için SoundDeck yeniden başlatılacak.",
+                ["lang_restart_msg"] = "Yeni dili uygulamak için %APP% yeniden başlatılacak.",
                 ["lang_english"] = "English",
                 ["lang_turkish"] = "Türkçe",
 
@@ -214,6 +218,11 @@ namespace AudioDeviceTrayApp
                 Strings["en"].TryGetValue(key, out value);
             }
             value ??= key;
+
+            // %APP% stands in for the product name, which differs between the classic
+            // and the Store build (see AppInfo).
+            value = value.Replace("%APP%", AppInfo.DisplayName);
+
             return args.Length > 0 ? string.Format(value, args) : value;
         }
     }
