@@ -173,6 +173,9 @@ namespace AudioDeviceTrayApp
                 Cursor = Cursors.Hand
             };
             _saveButton.FlatAppearance.BorderSize = 0;
+            // The label contains "&", which WinForms would otherwise eat as a mnemonic
+            // prefix and render as "Save _Close".
+            _saveButton.UseMnemonic = false;
             _saveButton.MouseEnter += (s, e) => _saveButton.BackColor = AccentHover;
             _saveButton.MouseLeave += (s, e) => _saveButton.BackColor = Accent;
             _saveButton.Click += SaveButton_Click;
